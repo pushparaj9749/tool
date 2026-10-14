@@ -1,0 +1,77 @@
+{
+  "name": "forge3d-ai-studio",
+  "version": "1.0.0",
+  "description": "PC Desktop AI 3D Model Generator Studio (Image + Prompt to 3D with Dual Variations, Interactive Paint Studio & Multi-Format Export)",
+  "author": "Forge3D AI Studio",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "main": "electron/main.cjs",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0 --port 5173",
+    "build": "vite build",
+    "preview": "vite preview --host 0.0.0.0 --port 5173",
+    "electron:dev": "electron .",
+    "electron:build": "vite build && electron-builder --win --x64 --publish never"
+  },
+  "build": {
+    "appId": "com.forge3d.aistudio.desktop",
+    "productName": "Forge3D AI Studio",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "assets/**/*",
+      "package.json"
+    ],
+    "win": {
+      "icon": "assets/icon.png",
+      "target": [
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "${productName}-${version}-${target}.${ext}"
+    },
+    "portable": {
+      "artifactName": "Forge3D-AI-Studio-Portable-x64.exe"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Forge3D AI Studio",
+      "artifactName": "Forge3D-AI-Studio-Setup-x64.exe"
+    }
+  },
+  "dependencies": {
+    "lucide-react": "^0.475.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "three": "^0.173.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.0.6",
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
+    "@types/three": "^0.173.0",
+    "@vitejs/plugin-react": "^4.3.4",
+    "electron": "^34.2.0",
+    "electron-builder": "^25.1.8",
+    "tailwindcss": "^4.0.6",
+    "typescript": "^5.7.3",
+    "vite": "^6.1.0"
+  }
+}
