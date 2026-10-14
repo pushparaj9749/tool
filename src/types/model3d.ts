@@ -36,16 +36,16 @@ export interface Part3D {
   name: string;
   type: PrimitiveType;
   position: [number, number, number];
-  rotation: [number, number, number]; // Euler degrees [x, y, z]
+  rotation: [number, number, number];
   scale: [number, number, number];
 
   // Color & PBR Material
-  color: string; // Hex #RRGGBB
-  metalness: number; // 0.0 to 1.0
-  roughness: number; // 0.0 to 1.0
-  emissive?: string; // Hex #RRGGBB
-  emissiveIntensity?: number; // 0.0 to 3.0
-  opacity?: number; // 0.1 to 1.0
+  color: string;
+  metalness: number;
+  roughness: number;
+  emissive?: string;
+  emissiveIntensity?: number;
+  opacity?: number;
   transparent?: boolean;
   wireframe?: boolean;
   finishPreset?: MaterialFinishPreset;
@@ -57,12 +57,9 @@ export interface Part3D {
     tubeRadius?: number;
     bevel?: number;
     segments?: number;
-    // For lathe: 2D profile points [[r, y], ...]
     lathePoints?: [number, number][];
-    // For extrude: 2D polygon points [[x, y], ...] and depth
     polygonPoints?: [number, number][];
     extrudeDepth?: number;
-    // For image_relief: dataURL & settings
     imageDataUrl?: string;
     reliefDepth?: number;
     reliefResolution?: number;
@@ -72,7 +69,7 @@ export interface Part3D {
   // Symmetry & Instancing Modifiers
   mirrorX?: boolean;
   mirrorZ?: boolean;
-  radialCount?: number; // e.g., 4, 6, 8 radial copies around Y axis
+  radialCount?: number;
   radialRadius?: number;
 
   // Editor state
@@ -123,4 +120,5 @@ export interface ColorTheme {
 export interface GeminiConfig {
   apiKey: string;
   model: string;
+  customModels?: string[];
 }

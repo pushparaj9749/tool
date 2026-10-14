@@ -1,23 +1,26 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   AlertCircle,
+  ArrowLeft,
   Box,
   Camera,
   CheckCircle2,
-  Cpu,
   Download,
-  Eye,
   Grid,
-  Keyboard,
+  ImagePlus,
   KeyRound,
-  MousePointerClick,
+  Layers,
+  Loader2,
   Paintbrush,
+  Palette,
   Redo2,
   RotateCw,
+  Sparkles,
   Sun,
+  Trash2,
   Trophy,
   Undo2,
-  X,
+  Wand2,
 } from 'lucide-react';
 import {
   ColorTheme,
@@ -28,29 +31,34 @@ import {
   MaterialFinishPreset,
   Model3DSpec,
   Part3D,
-  PrimitiveType,
 } from './types/model3d';
 import { PRESET_GENERATION_PAIRS } from './utils/presetModels';
-import { applyColorThemeToParts, MATERIAL_FINISHES } from './utils/colorThemes';
+import {
+  applyColorThemeToParts,
+  COLOR_THEMES,
+  MATERIAL_FINISHES,
+  QUICK_PAINT_SWATCHES,
+} from './utils/colorThemes';
 import {
   generateDual3DModelsWithGemini,
-  generateSmartLocalDualPair,
+  generateFallbackPair,
   refineModelWithGemini,
-  sanitizePart,
 } from './services/geminiService';
-import { exportModelToGLTF } from './utils/exporters';
+import {
+  exportModelToGLTF,
+  exportModelToOBJ,
+  exportModelToSTL,
+} from './utils/exporters';
 import { Viewport3D } from './components/Viewport3D';
-import { LeftGeneratorPanel } from './components/LeftGeneratorPanel';
-import { RightStudioPanel } from './components/RightStudioPanel';
-import { DualComparisonModal } from './components/DualComparisonModal';
 import { ApiKeyModal } from './components/ApiKeyModal';
 import { ExportModal } from './components/ExportModal';
 
 const STORAGE_KEY_API = 'forge3d_gemini_config_v1';
-const STORAGE_KEY_HISTORY = 'forge3d_history_pairs_v1';
+
+type WorkflowStep = 'create' | 'choose' | 'preview';
 
 export function App() {
-  // Gemini API Key Config (stored strictly on User's PC in localStorage)
+  // User's Gemini API Key & Custom Models (stored locally on PC)
   const [geminiConfig, setGeminiConfig] = useState<GeminiConfig>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY_API);
@@ -58,69 +66,49 @@ export function App() {
     } catch {
       // ignore
     }
-    return { apiKey: '', model: 'gemini-2.5-flash' };
+    return { apiKey: '', model: 'gemini-2.5-flash', customModels: [] };
   });
 
-  // Saved Generation Pairs History on PC
-  const [historyPairs, setHistoryPairs] = useState<GenerationPair[]>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY_HISTORY);
-      if (saved) return JSON.parse(saved);
-    } catch {
-      // ignore
-    }
-    return [];
-  });
+  // Guided 3-Step Workflow State ('create' -> 'choose' -> 'preview')
+  const [step, setStep] = useState<WorkflowStep>('create');
 
-  // Active Generation Pair & Active Selected Model (A or B)
-  const [activePair, setActivePair] = useState<GenerationPair>(() => {
-    return JSON.parse(JSON.stringify(PRESET_GENERATION_PAIRS[0]));
-  });
-  const [activeVariationKey, setActiveVariationKey] = useState<'A' | 'B'>('A');
-  const [activeModel, setActiveModel] = useState<Model3DSpec>(() => {
-    return JSON.parse(JSON.stringify(PRESET_GENERATION_PAIRS[0].variationA));
-  });
+  // Step 1: Creation Inputs
+  const [prompt, setPrompt] = useState('');
+  const [imageDataUrl, setImageDataUrl] = useState<string | undefined>(undefined);
+  const [detailStyle, setDetailStyle] = useState<DetailStyle>('high-detail');
+  const [selectedThemeId, setSelectedThemeId] = useState<string>('cyberpunk-2099');
+  const [preferredColor, setPreferredColor] = useState<string>('#6366f1');
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [isRefining, setIsRefining] = useState(false);
+  const [refineInput, setRefineInput] = useState('');
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-  // Undo / Redo Stack for Active Model Edits & Painting
+  // Step 2 & 3: Generated Pair (Option A & Option B) + Chosen Model
+  const [activePair, setActivePair] = useState<GenerationPair>(() =>
+    JSON.parse(JSON.stringify(PRESET_GENERATION_PAIRS[0]))
+  );
+  const [chosenOption, setChosenOption] = useState<'A' | 'B'>('A');
+  const [activeModel, setActiveModel] = useState<Model3DSpec>(() =>
+    JSON.parse(JSON.stringify(PRESET_GENERATION_PAIRS[0].variationA))
+  );
+
+  // Undo / Redo Stack
   const [undoStack, setUndoStack] = useState<Model3DSpec[]>([]);
   const [redoStack, setRedoStack] = useState<Model3DSpec[]>([]);
 
-  // Generator Inputs
-  const [prompt, setPrompt] = useState(
-    'Futuristic Cyberpunk Hover Supercar with glowing neon thrusters & aero spoiler'
-  );
-  const [imageDataUrl, setImageDataUrl] = useState<string | undefined>(undefined);
-  const [detailStyle, setDetailStyle] = useState<DetailStyle>('high-detail');
-  const [imageMode, setImageMode] = useState<'dual-ai' | 'ai-plus-voxel'>('dual-ai');
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [isRefining, setIsRefining] = useState(false);
-
-  // Viewport & Paint Studio State
+  // Step 3: Preview & Easy Color Studio State
   const [selectedPartId, setSelectedPartId] = useState<string | null>(null);
-  const [interactionMode, setInteractionMode] = useState<'select' | 'paint'>('select');
   const [activePaintColor, setActivePaintColor] = useState<string>('#06b6d4');
   const [activePaintFinish, setActivePaintFinish] = useState<MaterialFinishPreset>('metallic');
-
+  const [paintOnClick, setPaintOnClick] = useState<boolean>(true);
   const [lightingPreset, setLightingPreset] = useState<LightingPreset>('studio');
-  const [autoRotate, setAutoRotate] = useState<boolean>(false);
+  const [autoRotate, setAutoRotate] = useState<boolean>(true);
   const [wireframe, setWireframe] = useState<boolean>(false);
-  const [xrayMode, setXrayMode] = useState<boolean>(false);
-  const [showGrid, setShowGrid] = useState<boolean>(true);
-  const [bgColor, setBgColor] = useState<string>('#0b0e17');
-  const [cameraTrigger, setCameraTrigger] = useState<{
-    view: 'iso' | 'front' | 'side' | 'top' | 'reset';
-    ts: number;
-  } | null>(null);
   const [screenshotTrigger, setScreenshotTrigger] = useState<number>(0);
-  const [meshStats, setMeshStats] = useState({ vertices: 0, triangles: 0, parts: 0 });
 
-  // Modals
-  const [showComparisonModal, setShowComparisonModal] = useState<boolean>(false);
+  // Modals & Toast
   const [showApiKeyModal, setShowApiKeyModal] = useState<boolean>(false);
   const [showExportModal, setShowExportModal] = useState<boolean>(false);
-  const [showShortcutsModal, setShowShortcutsModal] = useState<boolean>(false);
-
-  // Toast Notification
   const [toast, setToast] = useState<{
     type: 'success' | 'error' | 'info';
     text: string;
@@ -132,11 +120,10 @@ export function App() {
 
   useEffect(() => {
     if (!toast) return;
-    const timer = setTimeout(() => setToast(null), 4500);
-    return () => clearTimeout(timer);
+    const t = setTimeout(() => setToast(null), 4200);
+    return () => clearTimeout(t);
   }, [toast]);
 
-  // Save Gemini config to localStorage
   const handleSaveGeminiConfig = (newCfg: GeminiConfig) => {
     setGeminiConfig(newCfg);
     try {
@@ -144,38 +131,14 @@ export function App() {
     } catch {
       // ignore
     }
-    notify(
-      newCfg.apiKey
-        ? `Gemini API Key saved locally on your PC (${newCfg.model}).`
-        : 'Gemini API Key cleared.',
-      'success'
-    );
+    notify(`Saved API settings (Model: ${newCfg.model})`, 'success');
   };
 
-  // Save generation pair to local history
-  const pushPairToHistory = (pair: GenerationPair) => {
-    setHistoryPairs((prev) => {
-      const next = [pair, ...prev.filter((p) => p.id !== pair.id)].slice(0, 12);
-      try {
-        localStorage.setItem(STORAGE_KEY_HISTORY, JSON.stringify(next));
-      } catch {
-        // ignore
-      }
-      return next;
-    });
-  };
-
-  // Helper to commit a change to activeModel with Undo history
   const commitModelChange = (updater: (current: Model3DSpec) => Model3DSpec) => {
     setActiveModel((prev) => {
       const next = updater(prev);
       setUndoStack((u) => [...u.slice(-20), prev]);
       setRedoStack([]);
-      setActivePair((pairPrev) => ({
-        ...pairPrev,
-        variationA: activeVariationKey === 'A' ? next : pairPrev.variationA,
-        variationB: activeVariationKey === 'B' ? next : pairPrev.variationB,
-      }));
       return next;
     });
   };
@@ -196,170 +159,85 @@ export function App() {
     setActiveModel(next);
   };
 
-  // PC Keyboard Shortcuts (Ctrl+Z, Ctrl+Y, P, V, W, R, Ctrl+E)
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      const tag = (e.target as HTMLElement)?.tagName?.toLowerCase();
-      if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
-
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
-        e.preventDefault();
-        handleUndo();
-      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') {
-        e.preventDefault();
-        handleRedo();
-      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'e') {
-        e.preventDefault();
-        setShowExportModal(true);
-      } else if (e.key.toLowerCase() === 'p') {
-        setInteractionMode((m) => (m === 'paint' ? 'select' : 'paint'));
-      } else if (e.key.toLowerCase() === 'v') {
-        setInteractionMode('select');
-      } else if (e.key.toLowerCase() === 'w') {
-        setWireframe((w) => !w);
-      } else if (e.key.toLowerCase() === 'r') {
-        setAutoRotate((r) => !r);
+  const handleImageUpload = (file: File) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        setImageDataUrl(reader.result);
       }
     };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [undoStack, redoStack, activeModel]);
+    reader.readAsDataURL(file);
+  };
 
-  // Generate 2 Variations (A & B) with User's Gemini API Key
-  const handleGenerateWithGemini = async () => {
-    if (!geminiConfig.apiKey.trim()) {
-      setShowApiKeyModal(true);
-      notify(
-        'Please enter your Google Gemini API Key first (or click Instant Offline Demo).',
-        'info'
-      );
-      return;
-    }
-
+  // STEP 1 -> STEP 2: Generate 2 Models (Option A & Option B)
+  const handleGenerateModels = async () => {
     if (!prompt.trim() && !imageDataUrl) {
-      notify('Please enter a prompt or upload a reference image first!', 'error');
+      notify('Please enter a prompt or upload an image first!', 'error');
       return;
     }
 
     setIsGenerating(true);
     try {
-      const newPair = await generateDual3DModelsWithGemini({
-        prompt,
-        imageDataUrl,
-        detailStyle,
-        imageMode,
-        geminiConfig,
-      });
+      let generatedPair: GenerationPair;
 
-      setActivePair(newPair);
-      pushPairToHistory(newPair);
-      setShowComparisonModal(true);
-      notify(
-        'Generated 2 3D Model Variations (Option A & Option B)! Choose your favorite.',
-        'success'
-      );
+      if (geminiConfig.apiKey.trim()) {
+        generatedPair = await generateDual3DModelsWithGemini({
+          prompt,
+          imageDataUrl,
+          detailStyle,
+          preferredColorHex: preferredColor,
+          geminiConfig,
+        });
+      } else {
+        generatedPair = await generateFallbackPair({
+          prompt,
+          imageDataUrl,
+          detailStyle,
+        });
+      }
+
+      // Apply selected starting color theme if chosen
+      const chosenTheme = COLOR_THEMES.find((t) => t.id === selectedThemeId);
+      if (chosenTheme && !geminiConfig.apiKey.trim()) {
+        generatedPair.variationA.parts = applyColorThemeToParts(
+          generatedPair.variationA.parts,
+          chosenTheme
+        );
+      }
+
+      setActivePair(generatedPair);
+      setStep('choose');
+      notify('2 Models generated! Compare Option A & Option B and choose the better one.', 'success');
     } catch (err: any) {
-      notify(err?.message || 'Failed to generate 3D models with Gemini API.', 'error');
+      notify(err?.message || 'Generation failed. Please check your Gemini API Key & Model name.', 'error');
     } finally {
       setIsGenerating(false);
     }
   };
 
-  // Generate Instant Offline / Demo Dual Pair
-  const handleGenerateLocalDemo = async () => {
-    setIsGenerating(true);
-    try {
-      const demoPair = await generateSmartLocalDualPair({
-        prompt,
-        imageDataUrl,
-        detailStyle,
-      });
-      setActivePair(demoPair);
-      pushPairToHistory(demoPair);
-      setShowComparisonModal(true);
-      notify('2 Variations (Option A & Option B) ready! Compare & pick the best one.', 'success');
-    } catch (err: any) {
-      notify(err?.message || 'Demo generation error', 'error');
-    } finally {
-      setIsGenerating(false);
-    }
-  };
-
-  // Choose Option A or Option B from the Dual Comparison Modal
-  const handleSelectVariation = (choice: 'A' | 'B') => {
-    const chosenSpec =
-      choice === 'A'
-        ? JSON.parse(JSON.stringify(activePair.variationA))
-        : JSON.parse(JSON.stringify(activePair.variationB));
-
-    setActiveVariationKey(choice);
-    setActivePair((prev) => ({ ...prev, selectedVariation: choice }));
-    setActiveModel(chosenSpec);
-    setSelectedPartId(chosenSpec.parts[0]?.id || null);
+  // STEP 2 -> STEP 3: User chooses Option A or Option B -> Opens 3D Preview & Color Studio
+  const handleChooseOption = (option: 'A' | 'B') => {
+    const selectedSpec: Model3DSpec = JSON.parse(
+      JSON.stringify(option === 'A' ? activePair.variationA : activePair.variationB)
+    );
+    setChosenOption(option);
+    setActiveModel(selectedSpec);
+    setSelectedPartId(selectedSpec.parts[0]?.id || null);
     setUndoStack([]);
     setRedoStack([]);
-    setShowComparisonModal(false);
-    notify(
-      `Selected Option ${choice} ("${chosenSpec.name}")! You can now customize colors, parts & download.`,
-      'success'
-    );
+    setAutoRotate(false);
+    setStep('preview');
+    notify(`Opened Option ${option} ("${selectedSpec.name}") in 3D Preview & Color Studio!`, 'success');
   };
 
-  // AI Refine Current Model
-  const handleRefineWithGemini = async (instruction: string) => {
-    const lower = instruction.toLowerCase();
-
-    if (!geminiConfig.apiKey.trim()) {
-      if (lower.includes('gold')) {
-        commitModelChange((m) => ({
-          ...m,
-          parts: applyColorThemeToParts(m.parts, {
-            id: 'gold',
-            name: 'Gold',
-            description: '',
-            swatches: ['#111827', '#f59e0b', '#fbbf24', '#1f2937', '#fef3c7'],
-            mapping: {
-              primary: { color: '#f59e0b', metalness: 0.95, roughness: 0.14 },
-              secondary: { color: '#111827', metalness: 0.6, roughness: 0.3 },
-              accent: { color: '#fbbf24', metalness: 0.95, roughness: 0.12 },
-              dark: { color: '#030712', metalness: 0.4, roughness: 0.6 },
-              glow: { color: '#38bdf8', emissive: '#38bdf8', emissiveIntensity: 1.8 },
-              glass: { color: '#fde68a', opacity: 0.45 },
-            },
-          }),
-        }));
-        notify('Applied Royal Gold & Black styling to current 3D model!', 'success');
-        return;
-      }
-      setShowApiKeyModal(true);
-      notify('Enter your Gemini API Key to use AI natural-language model editing!', 'info');
-      return;
-    }
-
-    setIsRefining(true);
-    try {
-      const updated = await refineModelWithGemini({
-        currentModel: activeModel,
-        instruction,
-        geminiConfig,
-      });
-      commitModelChange(() => updated);
-      notify(`Refined 3D model: "${instruction}"`, 'success');
-    } catch (err: any) {
-      notify(err?.message || 'Failed to refine model with Gemini.', 'error');
-    } finally {
-      setIsRefining(false);
-    }
-  };
-
-  // Paint & Material Handlers
+  // Paint & Color helpers in Step 3
   const getFinishDef = (finishId: MaterialFinishPreset) =>
     MATERIAL_FINISHES.find((f) => f.id === finishId) || MATERIAL_FINISHES[0];
 
-  const handleApplyPaintToPart = (
+  const handlePaintPart = (
     partId: string,
-    hex: string,
-    finishId: MaterialFinishPreset = activePaintFinish
+    hex = activePaintColor,
+    finishId = activePaintFinish
   ) => {
     const fin = getFinishDef(finishId);
     commitModelChange((m) => ({
@@ -383,7 +261,7 @@ export function App() {
     setSelectedPartId(partId);
   };
 
-  const handleApplyColorToAllParts = (hex: string, finishId: MaterialFinishPreset) => {
+  const handleColorAllParts = (hex = activePaintColor, finishId = activePaintFinish) => {
     const fin = getFinishDef(finishId);
     commitModelChange((m) => ({
       ...m,
@@ -399,7 +277,7 @@ export function App() {
         transparent: fin.transparent,
       })),
     }));
-    notify(`Applied ${fin.label} (${hex}) to all parts!`, 'success');
+    notify('Applied color & finish to the entire 3D model!', 'success');
   };
 
   const handleApplyTheme = (theme: ColorTheme) => {
@@ -407,364 +285,524 @@ export function App() {
       ...m,
       parts: applyColorThemeToParts(m.parts, theme),
     }));
-    notify(`Applied "${theme.name}" color palette across all parts!`, 'success');
+    notify(`Applied "${theme.name}" color theme!`, 'success');
   };
 
-  const handleUpdatePart = (partId: string, updater: (p: Part3D) => Part3D) => {
-    commitModelChange((m) => ({
-      ...m,
-      parts: m.parts.map((p) => (p.id === partId ? updater(p) : p)),
-    }));
-  };
-
-  const handleAddPart = (type: PrimitiveType) => {
-    const newId = `part_${Date.now()}`;
-    const newPart: Part3D = {
-      id: newId,
-      name: `New ${type.replace('_', ' ')}`,
-      type,
-      position: [0, 1.5, 0],
-      rotation: [0, 0, 0],
-      scale: [0.7, 0.7, 0.7],
-      color: activePaintColor,
-      metalness: 0.6,
-      roughness: 0.25,
-      visible: true,
-    };
-    commitModelChange((m) => ({
-      ...m,
-      parts: [...m.parts, newPart],
-    }));
-    setSelectedPartId(newId);
-    notify(`Added new ${type} part to 3D model.`, 'success');
-  };
-
-  const handleDuplicatePart = (partId: string) => {
-    const target = activeModel.parts.find((p) => p.id === partId);
-    if (!target) return;
-    const copyId = `part_${Date.now()}`;
-    const copyPart: Part3D = {
-      ...JSON.parse(JSON.stringify(target)),
-      id: copyId,
-      name: `${target.name} (Copy)`,
-      position: [target.position[0] + 0.25, target.position[1] + 0.15, target.position[2]],
-    };
-    commitModelChange((m) => ({
-      ...m,
-      parts: [...m.parts, copyPart],
-    }));
-    setSelectedPartId(copyId);
-  };
-
-  const handleDeletePart = (partId: string) => {
-    if (activeModel.parts.length <= 1) return;
-    commitModelChange((m) => ({
-      ...m,
-      parts: m.parts.filter((p) => p.id !== partId),
-    }));
-    if (selectedPartId === partId) {
-      setSelectedPartId(null);
+  const handleAiRefine = async () => {
+    if (!refineInput.trim()) return;
+    if (!geminiConfig.apiKey.trim()) {
+      setShowApiKeyModal(true);
+      notify('Please enter your Gemini API Key to use AI Edit.', 'info');
+      return;
+    }
+    setIsRefining(true);
+    try {
+      const updated = await refineModelWithGemini({
+        currentModel: activeModel,
+        instruction: refineInput.trim(),
+        geminiConfig,
+      });
+      commitModelChange(() => updated);
+      setRefineInput('');
+      notify('3D Model updated with your changes!', 'success');
+    } catch (err: any) {
+      notify(err?.message || 'Could not refine model.', 'error');
+    } finally {
+      setIsRefining(false);
     }
   };
 
-  const handleImportProjectJson = (file: File) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      try {
-        const parsed = JSON.parse(String(reader.result));
-        if (Array.isArray(parsed?.parts) && parsed.parts.length > 0) {
-          const loadedModel: Model3DSpec = {
-            id: parsed.id || `imported_${Date.now()}`,
-            name: parsed.name || 'Imported 3D Model',
-            subtitle: parsed.subtitle || 'Loaded from Local PC JSON',
-            description: parsed.description || 'Custom imported Forge3D project',
-            styleTag: parsed.styleTag || 'Custom Project',
-            createdAt: parsed.createdAt || new Date().toISOString(),
-            parts: parsed.parts.map((p: any, idx: number) => sanitizePart(p, idx)),
-          };
-          setActiveModel(loadedModel);
-          setSelectedPartId(loadedModel.parts[0]?.id || null);
-          notify(`Loaded "${loadedModel.name}" project successfully!`, 'success');
-        } else {
-          notify('Invalid project file: missing parts array.', 'error');
-        }
-      } catch {
-        notify('Failed to parse .json project file.', 'error');
-      }
-    };
-    reader.readAsText(file);
-  };
-
   const hasApiKey = Boolean(geminiConfig.apiKey.trim());
+  const selectedPartObj = activeModel.parts.find((p) => p.id === selectedPartId) || null;
 
   return (
-    <div className="w-screen h-screen bg-[#090b10] text-slate-100 flex flex-col overflow-hidden select-none">
-      {/* ==================== TOP PC STUDIO HEADER BAR ==================== */}
-      <header className="h-14 shrink-0 px-4 bg-[#0d1018] border-b border-slate-800/90 flex items-center justify-between gap-4">
-        {/* Left: Brand & Desktop Badge */}
+    <div className="w-screen h-screen bg-[#080b12] text-slate-100 flex flex-col overflow-hidden select-none">
+      {/* ==================== CLEAN TOP NAVIGATION BAR ==================== */}
+      <header className="h-16 shrink-0 px-6 bg-[#0c101b] border-b border-slate-800/80 flex items-center justify-between gap-4">
+        {/* Brand */}
         <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 via-violet-600 to-cyan-500 flex items-center justify-center shadow-lg shadow-indigo-500/20">
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 via-violet-600 to-cyan-500 flex items-center justify-center shadow-lg shadow-indigo-500/20">
             <Box className="w-5 h-5 text-white" />
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <span className="font-extrabold text-sm tracking-tight text-white">
-                Forge3D <span className="text-indigo-400">AI Studio</span>
+              <span className="font-extrabold text-base tracking-tight text-white">
+                Forge3D <span className="text-indigo-400">Studio</span>
               </span>
-              <span className="px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider rounded bg-indigo-500/15 text-indigo-300 border border-indigo-500/30">
-                PC Desktop .EXE Ready
+              <span className="px-2 py-0.5 text-[10px] font-bold rounded-full bg-indigo-500/15 text-indigo-300 border border-indigo-500/30">
+                v1.0.1
               </span>
             </div>
             <p className="text-[11px] text-slate-400">
-              Image + Prompt to 3D Model • Dual A/B Selection • Interactive Paint & GLB/OBJ/STL Export
+              AI Image &amp; Prompt to 3D Model Generator
             </p>
           </div>
         </div>
 
-        {/* Center: Active Variation A vs B Switcher & Compare Modal Button */}
-        <div className="flex items-center gap-2 bg-[#131826] p-1 rounded-xl border border-slate-800">
+        {/* Center 3-Step Progress Pill */}
+        <div className="flex items-center gap-1.5 bg-[#121726] p-1.5 rounded-2xl border border-slate-800">
           <button
-            onClick={() => handleSelectVariation('A')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
-              activeVariationKey === 'A'
+            onClick={() => setStep('create')}
+            className={`px-4 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
+              step === 'create'
                 ? 'bg-indigo-600 text-white shadow'
                 : 'text-slate-400 hover:text-white'
             }`}
           >
-            Variation A
+            1. Prompt &amp; Image
           </button>
+          <span className="text-slate-600">→</span>
           <button
-            onClick={() => handleSelectVariation('B')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
-              activeVariationKey === 'B'
-                ? 'bg-cyan-600 text-white shadow'
+            onClick={() => setStep('choose')}
+            className={`px-4 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
+              step === 'choose'
+                ? 'bg-indigo-600 text-white shadow'
                 : 'text-slate-400 hover:text-white'
             }`}
           >
-            Variation B
+            2. Choose Best (A vs B)
           </button>
-          <div className="h-4 w-[1px] bg-slate-700 mx-0.5" />
+          <span className="text-slate-600">→</span>
           <button
-            onClick={() => setShowComparisonModal(true)}
-            className="px-3 py-1.5 rounded-lg bg-indigo-500/15 hover:bg-indigo-500/30 border border-indigo-500/30 text-xs font-semibold text-indigo-200 flex items-center gap-1.5 transition cursor-pointer"
+            onClick={() => setStep('preview')}
+            className={`px-4 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
+              step === 'preview'
+                ? 'bg-indigo-600 text-white shadow'
+                : 'text-slate-400 hover:text-white'
+            }`}
           >
-            <Trophy className="w-3.5 h-3.5 text-amber-400" />
-            Compare Both (A vs B)
+            3. 3D Preview, Color &amp; Download
           </button>
         </div>
 
-        {/* Right: Undo/Redo, Shortcuts, Gemini API Key Button, Easy Download Button */}
-        <div className="flex items-center gap-2">
-          {/* Undo / Redo */}
-          <div className="flex items-center bg-[#131826] rounded-xl border border-slate-800 p-0.5">
-            <button
-              onClick={handleUndo}
-              disabled={undoStack.length === 0}
-              className="p-2 rounded-lg text-slate-300 hover:text-white disabled:opacity-30 transition cursor-pointer"
-              title="Undo (Ctrl+Z)"
-            >
-              <Undo2 className="w-4 h-4" />
-            </button>
-            <button
-              onClick={handleRedo}
-              disabled={redoStack.length === 0}
-              className="p-2 rounded-lg text-slate-300 hover:text-white disabled:opacity-30 transition cursor-pointer"
-              title="Redo (Ctrl+Y)"
-            >
-              <Redo2 className="w-4 h-4" />
-            </button>
-          </div>
-
-          {/* PC Shortcuts & .EXE Info */}
-          <button
-            onClick={() => setShowShortcutsModal(true)}
-            className="p-2 rounded-xl bg-[#131826] hover:bg-slate-800 border border-slate-800 text-slate-300 hover:text-white transition cursor-pointer"
-            title="PC Keyboard Shortcuts & .EXE Info"
-          >
-            <Keyboard className="w-4 h-4" />
-          </button>
-
-          {/* User's Own Gemini API Key Button */}
+        {/* Right: Gemini API Key + Custom Model Button */}
+        <div className="flex items-center gap-2.5">
           <button
             onClick={() => setShowApiKeyModal(true)}
-            className={`px-3.5 py-2 rounded-xl text-xs font-bold border flex items-center gap-2 transition cursor-pointer ${
+            className={`px-4 py-2 rounded-xl text-xs font-bold border flex items-center gap-2 transition cursor-pointer ${
               hasApiKey
                 ? 'bg-emerald-950/40 border-emerald-500/40 text-emerald-300 hover:bg-emerald-950/60'
-                : 'bg-amber-950/50 border-amber-500/50 text-amber-300 hover:bg-amber-900/50 animate-pulse'
+                : 'bg-indigo-600/20 border-indigo-500/50 text-indigo-200 hover:bg-indigo-600/30'
             }`}
           >
-            <KeyRound className="w-3.5 h-3.5" />
-            {hasApiKey ? `Gemini Key Active (${geminiConfig.model})` : 'Enter Gemini API Key'}
+            <KeyRound className="w-4 h-4" />
+            <div className="text-left">
+              <div>{hasApiKey ? 'Gemini API Connected' : 'Set Gemini API Key & Model'}</div>
+              <div className="text-[10px] font-mono opacity-80">{geminiConfig.model}</div>
+            </div>
           </button>
 
-          {/* Instant 1-Click .GLB Download */}
-          <button
-            onClick={async () => {
-              await exportModelToGLTF(activeModel, true, detailStyle);
-              notify(`Downloaded "${activeModel.name}.glb" with colors!`, 'success');
-            }}
-            className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-bold text-slate-100 flex items-center gap-1.5 transition cursor-pointer"
-            title="Quick 1-Click Download .GLB"
-          >
-            <Download className="w-3.5 h-3.5 text-cyan-400" />
-            Quick .GLB
-          </button>
-
-          {/* Full Export Modal Button */}
-          <button
-            onClick={() => setShowExportModal(true)}
-            className="px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-xs font-bold text-white shadow-lg shadow-emerald-600/20 flex items-center gap-2 transition cursor-pointer"
-          >
-            <Download className="w-4 h-4" />
-            Download 3D Model
-          </button>
+          {step === 'preview' && (
+            <button
+              onClick={() => setShowExportModal(true)}
+              className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-xs font-bold text-white shadow-lg shadow-emerald-600/20 flex items-center gap-2 transition cursor-pointer"
+            >
+              <Download className="w-4 h-4" />
+              Download 3D Model
+            </button>
+          )}
         </div>
       </header>
 
-      {/* ==================== MAIN 3-COLUMN DESKTOP WORKSPACE ==================== */}
-      <div className="flex-1 flex min-h-0 overflow-hidden">
-        {/* LEFT PANEL: Image + Prompt Generator & Presets */}
-        <LeftGeneratorPanel
-          prompt={prompt}
-          imageDataUrl={imageDataUrl}
-          detailStyle={detailStyle}
-          imageMode={imageMode}
-          isGenerating={isGenerating}
-          isRefining={isRefining}
-          hasApiKey={hasApiKey}
-          historyPairs={historyPairs}
-          activePairId={activePair.id}
-          onPromptChange={setPrompt}
-          onImageChange={setImageDataUrl}
-          onDetailStyleChange={setDetailStyle}
-          onImageModeChange={setImageMode}
-          onGenerateWithGemini={handleGenerateWithGemini}
-          onGenerateLocalDemo={handleGenerateLocalDemo}
-          onRefineWithGemini={handleRefineWithGemini}
-          onSelectPresetPair={(pair, openModal) => {
-            const cloned: GenerationPair = JSON.parse(JSON.stringify(pair));
-            setActivePair(cloned);
-            setActiveVariationKey('A');
-            setActiveModel(cloned.variationA);
-            setSelectedPartId(cloned.variationA.parts[0]?.id || null);
-            if (openModal) {
-              setShowComparisonModal(true);
-            } else {
-              notify(`Loaded "${cloned.variationA.name}" into 3D Studio!`, 'info');
-            }
-          }}
-          onOpenApiKeyModal={() => setShowApiKeyModal(true)}
-          onImportProjectJson={handleImportProjectJson}
-        />
+      {/* Toast Notification */}
+      {toast && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-5 py-3 rounded-2xl bg-slate-900/95 border border-slate-700 shadow-2xl flex items-center gap-2.5 text-xs font-semibold text-white backdrop-blur-md">
+          {toast.type === 'error' ? (
+            <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+          ) : (
+            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+          )}
+          <span>{toast.text}</span>
+        </div>
+      )}
 
-        {/* CENTER PANEL: Interactive 3D Viewport & Floating Toolbars */}
-        <main className="flex-1 flex flex-col min-w-0 bg-[#0b0e17] relative">
-          {/* Top Floating Overlay inside 3D Viewport */}
-          <div className="absolute top-3.5 left-4 right-4 z-10 flex items-start justify-between pointer-events-none gap-4">
-            {/* Active Model Card & Tool Mode Switcher */}
-            <div className="pointer-events-auto flex flex-col gap-2">
-              <div className="px-3.5 py-2 rounded-xl bg-slate-950/85 border border-slate-800/90 backdrop-blur-md shadow-xl flex items-center gap-3">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
-                      Option {activeVariationKey}
-                    </span>
-                    <h1 className="text-sm font-bold text-white">{activeModel.name}</h1>
+      {/* ==================== STEP 1: EASY CREATE SCREEN ==================== */}
+      {step === 'create' && (
+        <div className="flex-1 overflow-y-auto flex items-center justify-center p-6 bg-[radial-gradient(circle_at_50%_0%,rgba(99,102,241,0.14),transparent_70%)]">
+          <div className="w-full max-w-4xl space-y-6">
+            {/* Title */}
+            <div className="text-center space-y-2">
+              <h1 className="text-3xl font-extrabold text-white tracking-tight">
+                Create Your 3D Model from Image &amp; Prompt
+              </h1>
+              <p className="text-sm text-slate-400">
+                Upload an image and/or describe what you want — we will generate{' '}
+                <strong className="text-indigo-300">2 3D Variations (Option A &amp; Option B)</strong>{' '}
+                for you to choose from!
+              </p>
+            </div>
+
+            {/* Main Creation Card */}
+            <div className="p-7 rounded-3xl bg-[#0e1320] border border-slate-800/90 shadow-2xl space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
+                {/* Left: Reference Image Upload */}
+                <div className="md:col-span-5 flex flex-col">
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="text-xs font-bold text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
+                      <ImagePlus className="w-4 h-4 text-indigo-400" />
+                      Reference Image (Optional)
+                    </label>
+                    {imageDataUrl && (
+                      <button
+                        onClick={() => setImageDataUrl(undefined)}
+                        className="text-xs text-rose-400 hover:text-rose-300 flex items-center gap-1 cursor-pointer"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        Remove
+                      </button>
+                    )}
                   </div>
-                  <p className="text-[11px] text-slate-400 mt-0.5 max-w-md truncate">
-                    {activeModel.description}
-                  </p>
+
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) handleImageUpload(file);
+                    }}
+                  />
+
+                  {!imageDataUrl ? (
+                    <div
+                      onClick={() => fileInputRef.current?.click()}
+                      onDragOver={(e) => e.preventDefault()}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        const file = e.dataTransfer.files?.[0];
+                        if (file) handleImageUpload(file);
+                      }}
+                      className="flex-1 min-h-[190px] p-6 rounded-2xl border-2 border-dashed border-slate-700/80 hover:border-indigo-500 bg-[#090d16]/70 hover:bg-[#111728] transition flex flex-col items-center justify-center text-center cursor-pointer group"
+                    >
+                      <div className="w-12 h-12 rounded-2xl bg-indigo-500/15 border border-indigo-500/30 flex items-center justify-center text-indigo-400 group-hover:scale-105 transition mb-3">
+                        <ImagePlus className="w-6 h-6" />
+                      </div>
+                      <div className="text-sm font-bold text-white">
+                        Upload or Drop Image Here
+                      </div>
+                      <div className="text-xs text-slate-400 mt-1">
+                        PNG, JPG, WEBP supported
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex-1 min-h-[190px] p-3 rounded-2xl bg-[#090d16] border border-indigo-500/50 flex flex-col items-center justify-center relative">
+                      <img
+                        src={imageDataUrl}
+                        alt="Uploaded Reference"
+                        className="max-h-40 rounded-xl object-contain"
+                      />
+                      <span className="mt-2 text-xs text-emerald-400 font-semibold">
+                        ✓ Image Ready for 3D Generation
+                      </span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Right: Prompt & Style Settings */}
+                <div className="md:col-span-7 flex flex-col justify-between space-y-4">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-200 uppercase tracking-wider mb-2">
+                      Describe Your 3D Model (Prompt)
+                    </label>
+                    <textarea
+                      rows={4}
+                      value={prompt}
+                      onChange={(e) => setPrompt(e.target.value)}
+                      placeholder="Example: A futuristic cyberpunk sports car with glowing neon wheels and rear spoiler..."
+                      className="w-full p-3.5 rounded-2xl bg-[#090d16] border border-slate-700/90 focus:border-indigo-500 focus:outline-none text-sm text-white placeholder-slate-500 resize-none leading-relaxed"
+                    />
+
+                    {/* Quick Idea Chips */}
+                    <div className="flex flex-wrap gap-1.5 mt-2">
+                      {[
+                        'Futuristic Cyberpunk Supercar',
+                        'Armored Mecha Guardian Robot',
+                        'Royal Golden Greatsword with Crystal',
+                        'Sci-Fi Recon Quad-Drone',
+                      ].map((idea) => (
+                        <button
+                          key={idea}
+                          type="button"
+                          onClick={() => setPrompt(idea)}
+                          className="px-2.5 py-1 rounded-lg bg-[#141a2b] hover:bg-indigo-600/25 border border-slate-800 hover:border-indigo-500/40 text-[11px] text-slate-300 hover:text-white transition cursor-pointer"
+                        >
+                          {idea}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Color & Detail Row */}
+                  <div className="grid grid-cols-2 gap-4 pt-1">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-200 uppercase tracking-wider mb-1.5">
+                        Starting Color Style
+                      </label>
+                      <div className="flex items-center gap-2 p-2 rounded-xl bg-[#090d16] border border-slate-800">
+                        <input
+                          type="color"
+                          value={preferredColor}
+                          onChange={(e) => setPreferredColor(e.target.value)}
+                          className="w-7 h-7 rounded cursor-pointer bg-transparent border-0 shrink-0"
+                        />
+                        <select
+                          value={selectedThemeId}
+                          onChange={(e) => setSelectedThemeId(e.target.value)}
+                          className="w-full bg-transparent text-xs text-white focus:outline-none"
+                        >
+                          {COLOR_THEMES.map((t) => (
+                            <option key={t.id} value={t.id} className="bg-[#0e1320]">
+                              {t.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-200 uppercase tracking-wider mb-1.5">
+                        3D Mesh Style
+                      </label>
+                      <select
+                        value={detailStyle}
+                        onChange={(e) => setDetailStyle(e.target.value as DetailStyle)}
+                        className="w-full px-3 py-2.5 rounded-xl bg-[#090d16] border border-slate-800 text-xs text-white focus:outline-none"
+                      >
+                        <option value="high-detail" className="bg-[#0e1320]">
+                          High-Detail Smooth 3D
+                        </option>
+                        <option value="stylized-lowpoly" className="bg-[#0e1320]">
+                          Stylized Low-Poly Game 3D
+                        </option>
+                        <option value="voxel-blocky" className="bg-[#0e1320]">
+                          Voxel / Blocky 3D Style
+                        </option>
+                      </select>
+                    </div>
+                  </div>
                 </div>
               </div>
 
-              {/* Quick Cursor Mode Toggle (Select vs Click-to-Paint Brush) */}
-              <div className="inline-flex self-start p-1 rounded-xl bg-slate-950/85 border border-slate-800/90 backdrop-blur-md shadow-lg gap-1">
+              {/* Big Generate CTA Button */}
+              <div className="pt-2 flex flex-col sm:flex-row items-center gap-3">
                 <button
-                  onClick={() => setInteractionMode('select')}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer ${
-                    interactionMode === 'select'
-                      ? 'bg-indigo-600 text-white'
-                      : 'text-slate-400 hover:text-white'
-                  }`}
+                  type="button"
+                  disabled={isGenerating}
+                  onClick={handleGenerateModels}
+                  className="w-full py-4 px-6 rounded-2xl bg-gradient-to-r from-indigo-600 via-violet-600 to-cyan-600 hover:from-indigo-500 hover:via-violet-500 hover:to-cyan-500 disabled:opacity-60 text-white font-extrabold text-sm shadow-xl shadow-indigo-600/25 flex items-center justify-center gap-2.5 transition cursor-pointer"
                 >
-                  <MousePointerClick className="w-3.5 h-3.5" />
-                  Select & Inspect (V)
-                </button>
-                <button
-                  onClick={() => setInteractionMode('paint')}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer ${
-                    interactionMode === 'paint'
-                      ? 'bg-cyan-500 text-slate-950 font-bold'
-                      : 'text-slate-400 hover:text-white'
-                  }`}
-                >
-                  <Paintbrush className="w-3.5 h-3.5" />
-                  Click-to-Paint (P)
-                  <span
-                    className="w-3 h-3 rounded-full border border-white/50 ml-0.5"
-                    style={{ backgroundColor: activePaintColor }}
-                  />
+                  {isGenerating ? (
+                    <>
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                      Generating 2 3D Models (Option A &amp; Option B)...
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="w-5 h-5" />
+                      Generate 2 Models (Option A vs Option B)
+                    </>
+                  )}
                 </button>
               </div>
             </div>
 
-            {/* Right Floating Viewport Controls */}
-            <div className="pointer-events-auto flex flex-col items-end gap-2">
-              {/* View & Shader Toggles */}
-              <div className="flex items-center gap-1.5 p-1.5 rounded-xl bg-slate-950/85 border border-slate-800/90 backdrop-blur-md shadow-xl">
+            {/* Quick Ready Templates Bar */}
+            <div className="p-4 rounded-2xl bg-[#0c101b] border border-slate-800/80 flex flex-wrap items-center justify-between gap-3">
+              <span className="text-xs font-semibold text-slate-400">
+                Or test immediately with a pre-built 3D Model Pair:
+              </span>
+              <div className="flex flex-wrap gap-2">
+                {PRESET_GENERATION_PAIRS.map((pair) => (
+                  <button
+                    key={pair.id}
+                    onClick={() => {
+                      const cloned: GenerationPair = JSON.parse(JSON.stringify(pair));
+                      setActivePair(cloned);
+                      setPrompt(cloned.prompt);
+                      setStep('choose');
+                    }}
+                    className="px-3 py-1.5 rounded-xl bg-[#141a2b] hover:bg-indigo-600/30 border border-slate-700/80 hover:border-indigo-500/50 text-xs font-semibold text-slate-200 transition cursor-pointer"
+                  >
+                    {pair.variationA.name} (A vs B)
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ==================== STEP 2: CHOOSE BETTER MODEL (A vs B) ==================== */}
+      {step === 'choose' && (
+        <div className="flex-1 flex flex-col p-6 overflow-hidden bg-[#080b12]">
+          <div className="max-w-7xl w-full mx-auto flex-1 flex flex-col min-h-0">
+            {/* Header Info */}
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => setStep('create')}
+                  className="px-3 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700 text-xs font-semibold text-slate-300 flex items-center gap-1.5 cursor-pointer"
+                >
+                  <ArrowLeft className="w-3.5 h-3.5" />
+                  Back
+                </button>
+                <div>
+                  <h2 className="text-xl font-extrabold text-white flex items-center gap-2">
+                    <Trophy className="w-5 h-5 text-amber-400" />
+                    Choose Which 3D Model Is Better (Option A vs Option B)
+                  </h2>
+                  <p className="text-xs text-slate-400">
+                    Rotate both 3D models with your mouse, then click{' '}
+                    <strong className="text-white">Choose Model</strong> on the one you like best to
+                    open its full preview &amp; color editor!
+                  </p>
+                </div>
+              </div>
+
+              <button
+                onClick={() => setAutoRotate((v) => !v)}
+                className={`px-3.5 py-2 rounded-xl text-xs font-semibold border flex items-center gap-1.5 cursor-pointer ${
+                  autoRotate
+                    ? 'bg-indigo-600/25 border-indigo-500/50 text-indigo-200'
+                    : 'bg-slate-900 border-slate-700 text-slate-400'
+                }`}
+              >
+                <RotateCw className={`w-3.5 h-3.5 ${autoRotate ? 'animate-spin' : ''}`} />
+                Auto-Spin Both
+              </button>
+            </div>
+
+            {/* Side-by-Side 2 Cards */}
+            <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-6 min-h-0">
+              {(['A', 'B'] as const).map((key) => {
+                const spec = key === 'A' ? activePair.variationA : activePair.variationB;
+                const isA = key === 'A';
+                return (
+                  <div
+                    key={key}
+                    className={`flex flex-col rounded-3xl border-2 overflow-hidden bg-[#0e1320] transition ${
+                      isA
+                        ? 'border-indigo-500/60 hover:border-indigo-400'
+                        : 'border-cyan-500/60 hover:border-cyan-400'
+                    }`}
+                  >
+                    <div className="px-5 py-3.5 bg-[#13192b] border-b border-slate-800 flex items-center justify-between">
+                      <div className="flex items-center gap-2.5">
+                        <span
+                          className={`px-3 py-1 rounded-lg text-xs font-extrabold uppercase ${
+                            isA ? 'bg-indigo-600 text-white' : 'bg-cyan-600 text-white'
+                          }`}
+                        >
+                          Model {key}
+                        </span>
+                        <div>
+                          <h3 className="text-sm font-bold text-white">{spec.name}</h3>
+                          <p className="text-[11px] text-slate-400">{spec.subtitle}</p>
+                        </div>
+                      </div>
+                      <span className="px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-700 text-xs text-slate-300 flex items-center gap-1">
+                        <Layers className="w-3.5 h-3.5 text-indigo-400" />
+                        {spec.parts.length} Parts
+                      </span>
+                    </div>
+
+                    <div className="flex-1 min-h-0 relative bg-[#090c14]">
+                      <Viewport3D
+                        model={spec}
+                        detailStyle={activePair.detailStyle}
+                        lightingPreset={isA ? 'studio' : 'cyberpunk'}
+                        autoRotate={autoRotate}
+                        compact={true}
+                        backgroundColor="#090c14"
+                      />
+                    </div>
+
+                    <div className="p-5 bg-[#13192b] border-t border-slate-800 flex items-center justify-between gap-4">
+                      <p className="text-xs text-slate-300 line-clamp-2 flex-1">
+                        {spec.description}
+                      </p>
+                      <button
+                        onClick={() => handleChooseOption(key)}
+                        className={`shrink-0 px-6 py-3 rounded-xl font-extrabold text-xs text-white flex items-center gap-2 shadow-lg transition cursor-pointer ${
+                          isA
+                            ? 'bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500'
+                            : 'bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500'
+                        }`}
+                      >
+                        <CheckCircle2 className="w-4 h-4" />
+                        Choose Model {key} &amp; Open Preview
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ==================== STEP 3: FULL 3D PREVIEW, EASY COLOR & DOWNLOAD ==================== */}
+      {step === 'preview' && (
+        <div className="flex-1 flex min-h-0 overflow-hidden">
+          {/* Left/Center: Large 3D Interactive Viewport */}
+          <main className="flex-1 flex flex-col min-w-0 bg-[#090c14] relative">
+            {/* Top Floating Bar inside Viewport */}
+            <div className="absolute top-4 left-4 right-4 z-10 flex items-center justify-between pointer-events-none">
+              <div className="pointer-events-auto flex items-center gap-2.5">
+                <button
+                  onClick={() => setStep('choose')}
+                  className="px-3.5 py-2 rounded-xl bg-slate-950/90 hover:bg-slate-900 border border-slate-800 text-xs font-bold text-slate-200 flex items-center gap-1.5 shadow-lg backdrop-blur-md cursor-pointer"
+                >
+                  <Trophy className="w-3.5 h-3.5 text-amber-400" />
+                  Switch Option A / B
+                </button>
+
+                <div className="px-3.5 py-2 rounded-xl bg-slate-950/90 border border-slate-800 backdrop-blur-md shadow-lg flex items-center gap-2">
+                  <span className="px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-300 text-[10px] font-bold">
+                    Selected: Model {chosenOption}
+                  </span>
+                  <span className="text-xs font-bold text-white">{activeModel.name}</span>
+                </div>
+              </div>
+
+              {/* Right Quick Controls */}
+              <div className="pointer-events-auto flex items-center gap-1.5 p-1.5 rounded-xl bg-slate-950/90 border border-slate-800 backdrop-blur-md shadow-lg">
+                <button
+                  onClick={handleUndo}
+                  disabled={undoStack.length === 0}
+                  className="p-2 rounded-lg text-slate-300 hover:text-white disabled:opacity-30 cursor-pointer"
+                  title="Undo"
+                >
+                  <Undo2 className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={handleRedo}
+                  disabled={redoStack.length === 0}
+                  className="p-2 rounded-lg text-slate-300 hover:text-white disabled:opacity-30 cursor-pointer"
+                  title="Redo"
+                >
+                  <Redo2 className="w-4 h-4" />
+                </button>
+                <div className="h-4 w-[1px] bg-slate-800 mx-0.5" />
                 <button
                   onClick={() => setAutoRotate((v) => !v)}
-                  className={`px-2.5 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 transition cursor-pointer ${
-                    autoRotate
-                      ? 'bg-indigo-600 text-white'
-                      : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 cursor-pointer ${
+                    autoRotate ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'
                   }`}
-                  title="Auto-Spin Turntable (R)"
                 >
                   <RotateCw className={`w-3.5 h-3.5 ${autoRotate ? 'animate-spin' : ''}`} />
                   Spin
                 </button>
-
                 <button
                   onClick={() => setWireframe((v) => !v)}
-                  className={`px-2.5 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 transition cursor-pointer ${
-                    wireframe
-                      ? 'bg-cyan-600 text-white'
-                      : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 cursor-pointer ${
+                    wireframe ? 'bg-cyan-600 text-white' : 'text-slate-400 hover:text-white'
                   }`}
-                  title="Toggle 3D Wireframe (W)"
                 >
                   <Grid className="w-3.5 h-3.5" />
                   Wireframe
                 </button>
-
-                <button
-                  onClick={() => setXrayMode((v) => !v)}
-                  className={`px-2.5 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 transition cursor-pointer ${
-                    xrayMode
-                      ? 'bg-purple-600 text-white'
-                      : 'text-slate-400 hover:text-white hover:bg-slate-800'
-                  }`}
-                  title="Toggle X-Ray Translucent View"
-                >
-                  <Eye className="w-3.5 h-3.5" />
-                  X-Ray
-                </button>
-
-                <button
-                  onClick={() => setShowGrid((v) => !v)}
-                  className={`px-2.5 py-1.5 rounded-lg text-xs font-medium transition cursor-pointer ${
-                    showGrid
-                      ? 'bg-slate-800 text-slate-200'
-                      : 'text-slate-500 hover:text-slate-300'
-                  }`}
-                >
-                  Floor Grid
-                </button>
-
-                <div className="h-4 w-[1px] bg-slate-800 mx-0.5" />
-
-                {/* Studio Lighting Selector */}
                 <div className="flex items-center gap-1 px-2">
                   <Sun className="w-3.5 h-3.5 text-amber-400" />
                   <select
@@ -773,7 +811,7 @@ export function App() {
                     className="bg-transparent text-xs text-slate-200 focus:outline-none cursor-pointer"
                   >
                     <option value="studio" className="bg-slate-900">
-                      Studio Softbox
+                      Studio Light
                     </option>
                     <option value="cyberpunk" className="bg-slate-900">
                       Cyberpunk Neon
@@ -784,152 +822,241 @@ export function App() {
                     <option value="showroom" className="bg-slate-900">
                       Bright Showroom
                     </option>
-                    <option value="dramatic" className="bg-slate-900">
-                      Dramatic Rim
-                    </option>
                   </select>
                 </div>
-
-                {/* Viewport Background Color */}
-                <input
-                  type="color"
-                  value={bgColor}
-                  onChange={(e) => setBgColor(e.target.value)}
-                  className="w-6 h-6 rounded cursor-pointer bg-transparent border-0"
-                  title="Viewport Background Color"
-                />
-
-                {/* Snapshot PNG */}
                 <button
                   onClick={() => setScreenshotTrigger((n) => n + 1)}
-                  className="p-1.5 rounded-lg bg-slate-800 hover:bg-indigo-600 text-slate-200 hover:text-white transition cursor-pointer"
-                  title="Capture PNG Render Screenshot"
+                  className="p-2 rounded-lg bg-slate-800 hover:bg-indigo-600 text-white cursor-pointer"
+                  title="Save PNG Screenshot"
                 >
                   <Camera className="w-3.5 h-3.5" />
                 </button>
               </div>
+            </div>
 
-              {/* Camera Angle Presets */}
-              <div className="flex items-center gap-1 p-1 rounded-xl bg-slate-950/80 border border-slate-800/80 backdrop-blur-md">
-                {(
-                  [
-                    { id: 'iso', label: 'Perspective' },
-                    { id: 'front', label: 'Front' },
-                    { id: 'side', label: 'Side' },
-                    { id: 'top', label: 'Top' },
-                    { id: 'reset', label: 'Reset Cam' },
-                  ] as const
-                ).map((cam) => (
-                  <button
-                    key={cam.id}
-                    onClick={() => setCameraTrigger({ view: cam.id, ts: Date.now() })}
-                    className="px-2 py-1 rounded-lg text-[11px] font-medium text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer"
-                  >
-                    {cam.label}
-                  </button>
-                ))}
+            {/* 3D Viewport */}
+            <div className="flex-1 min-h-0">
+              <Viewport3D
+                model={activeModel}
+                detailStyle={detailStyle}
+                lightingPreset={lightingPreset}
+                autoRotate={autoRotate}
+                wireframe={wireframe}
+                selectedPartId={selectedPartId}
+                interactionMode={paintOnClick ? 'paint' : 'select'}
+                activePaintColor={activePaintColor}
+                onSelectPart={(id) => setSelectedPartId(id)}
+                onPaintPart={(id) => handlePaintPart(id, activePaintColor, activePaintFinish)}
+                screenshotTrigger={screenshotTrigger}
+              />
+            </div>
+
+            {/* Bottom Hint Bar */}
+            <div className="h-10 px-6 bg-[#0c101b] border-t border-slate-800 flex items-center justify-between text-xs text-slate-400">
+              <span className="flex items-center gap-2">
+                <Paintbrush className="w-3.5 h-3.5 text-cyan-400" />
+                <strong>Tip:</strong> Click directly on any part of the 3D model to paint it with
+                your selected color!
+              </span>
+              <span>Mouse Drag: Rotate 360° • Scroll: Zoom • Right-Click: Pan</span>
+            </div>
+          </main>
+
+          {/* Right Sidebar: Easy Color & 1-Click Download Panel */}
+          <aside className="w-[380px] shrink-0 bg-[#0e1320] border-l border-slate-800/90 flex flex-col h-full overflow-y-auto p-5 space-y-6">
+            {/* 1. Color & Paint Studio */}
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-extrabold text-white flex items-center gap-2">
+                  <Palette className="w-4 h-4 text-indigo-400" />
+                  1. Add Colors &amp; Materials
+                </h3>
+                <button
+                  onClick={() => setPaintOnClick((v) => !v)}
+                  className={`px-2.5 py-1 rounded-lg text-[11px] font-bold cursor-pointer ${
+                    paintOnClick
+                      ? 'bg-cyan-500 text-slate-950'
+                      : 'bg-slate-800 text-slate-300'
+                  }`}
+                >
+                  {paintOnClick ? 'Click-to-Paint: ON' : 'Click-to-Paint: OFF'}
+                </button>
+              </div>
+
+              {/* Color Swatches + Custom Color Picker */}
+              <div className="p-3.5 rounded-2xl bg-[#13192b] border border-slate-800 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold text-slate-300">
+                    {selectedPartObj
+                      ? `Part: ${selectedPartObj.name}`
+                      : 'Choose Brush Color'}
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="color"
+                      value={activePaintColor}
+                      onChange={(e) => {
+                        setActivePaintColor(e.target.value);
+                        if (selectedPartObj) {
+                          handlePaintPart(selectedPartObj.id, e.target.value, activePaintFinish);
+                        }
+                      }}
+                      className="w-7 h-7 rounded cursor-pointer bg-transparent border-0"
+                    />
+                    <span className="text-xs font-mono text-slate-300">{activePaintColor}</span>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-8 gap-1.5">
+                  {QUICK_PAINT_SWATCHES.map((sw) => (
+                    <button
+                      key={sw.hex}
+                      onClick={() => {
+                        setActivePaintColor(sw.hex);
+                        if (selectedPartObj) {
+                          handlePaintPart(selectedPartObj.id, sw.hex, activePaintFinish);
+                        }
+                      }}
+                      title={sw.name}
+                      className={`h-7 rounded-lg border transition cursor-pointer ${
+                        activePaintColor.toLowerCase() === sw.hex.toLowerCase()
+                          ? 'border-white scale-110 ring-2 ring-indigo-500'
+                          : 'border-white/15 hover:scale-105'
+                      }`}
+                      style={{ backgroundColor: sw.hex }}
+                    />
+                  ))}
+                </div>
+
+                {/* Material Finish Pills */}
+                <div className="grid grid-cols-3 gap-1.5 pt-1">
+                  {MATERIAL_FINISHES.slice(0, 6).map((fin) => (
+                    <button
+                      key={fin.id}
+                      onClick={() => {
+                        setActivePaintFinish(fin.id);
+                        if (selectedPartObj) {
+                          handlePaintPart(selectedPartObj.id, activePaintColor, fin.id);
+                        }
+                      }}
+                      className={`py-1.5 px-2 rounded-lg text-[11px] font-bold border transition cursor-pointer ${
+                        activePaintFinish === fin.id
+                          ? 'bg-indigo-600 border-indigo-400 text-white'
+                          : 'bg-[#090d16] border-slate-800 text-slate-300 hover:text-white'
+                      }`}
+                    >
+                      {fin.label.split(' ')[0]}
+                    </button>
+                  ))}
+                </div>
+
+                <button
+                  onClick={() => handleColorAllParts(activePaintColor, activePaintFinish)}
+                  className="w-full py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-bold text-slate-200 transition cursor-pointer"
+                >
+                  Apply This Color to Entire Model
+                </button>
+              </div>
+
+              {/* 1-Click Color Themes */}
+              <div className="space-y-2">
+                <label className="block text-xs font-bold text-slate-300">
+                  One-Click Color Themes (Auto-Colors All Parts)
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  {COLOR_THEMES.slice(0, 6).map((theme) => (
+                    <button
+                      key={theme.id}
+                      onClick={() => handleApplyTheme(theme)}
+                      className="p-2.5 rounded-xl bg-[#13192b] hover:bg-[#19223a] border border-slate-800 hover:border-indigo-500/50 text-left transition cursor-pointer"
+                    >
+                      <div className="text-xs font-bold text-white truncate">{theme.name}</div>
+                      <div className="flex items-center gap-1 mt-1.5">
+                        {theme.swatches.map((hex, i) => (
+                          <span
+                            key={i}
+                            className="w-3.5 h-3.5 rounded-full border border-white/20"
+                            style={{ backgroundColor: hex }}
+                          />
+                        ))}
+                      </div>
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
-          </div>
 
-          {/* Toast Notification Banner */}
-          {toast && (
-            <div className="absolute bottom-14 left-1/2 -translate-x-1/2 z-30 px-4 py-2.5 rounded-xl bg-slate-900/95 border border-slate-700 shadow-2xl flex items-center gap-2.5 text-xs font-medium text-white backdrop-blur-md">
-              {toast.type === 'error' ? (
-                <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
-              ) : (
-                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-              )}
-              <span>{toast.text}</span>
-            </div>
-          )}
-
-          {/* Three.js Main 3D Viewport */}
-          <div className="flex-1 min-h-0">
-            <Viewport3D
-              model={activeModel}
-              detailStyle={detailStyle}
-              lightingPreset={lightingPreset}
-              autoRotate={autoRotate}
-              wireframe={wireframe}
-              xrayMode={xrayMode}
-              showGrid={showGrid}
-              backgroundColor={bgColor}
-              selectedPartId={selectedPartId}
-              interactionMode={interactionMode}
-              activePaintColor={activePaintColor}
-              onSelectPart={(id) => setSelectedPartId(id)}
-              onPaintPart={(id) => handleApplyPaintToPart(id, activePaintColor, activePaintFinish)}
-              onStatsUpdate={setMeshStats}
-              cameraViewTrigger={cameraTrigger}
-              screenshotTrigger={screenshotTrigger}
-            />
-          </div>
-
-          {/* Bottom 3D Viewport Status Bar */}
-          <div className="h-9 px-4 bg-[#0a0d14] border-t border-slate-800/90 flex items-center justify-between text-[11px] text-slate-400">
-            <div className="flex items-center gap-4">
-              <span>
-                Vertices:{' '}
-                <strong className="text-slate-200 font-mono">
-                  {meshStats.vertices.toLocaleString()}
-                </strong>
-              </span>
-              <span>
-                Triangles:{' '}
-                <strong className="text-slate-200 font-mono">
-                  {meshStats.triangles.toLocaleString()}
-                </strong>
-              </span>
-              <span>
-                3D Components:{' '}
-                <strong className="text-indigo-300 font-mono">{meshStats.parts}</strong>
-              </span>
-              <span>
-                Mesh Mode: <strong className="text-cyan-300 uppercase">{detailStyle}</strong>
-              </span>
+            {/* 2. Quick AI Edit */}
+            <div className="p-3.5 rounded-2xl bg-[#13192b] border border-slate-800 space-y-2">
+              <label className="text-xs font-bold text-white flex items-center gap-1.5">
+                <Wand2 className="w-3.5 h-3.5 text-cyan-400" />
+                AI Edit Model (Optional)
+              </label>
+              <div className="flex gap-1.5">
+                <input
+                  type="text"
+                  value={refineInput}
+                  onChange={(e) => setRefineInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleAiRefine();
+                  }}
+                  placeholder="e.g. Add wings or make wheels bigger..."
+                  className="flex-1 px-3 py-2 rounded-xl bg-[#090d16] border border-slate-700 text-xs text-white focus:border-indigo-500 focus:outline-none"
+                />
+                <button
+                  onClick={handleAiRefine}
+                  disabled={isRefining || !refineInput.trim()}
+                  className="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-xs font-bold text-white cursor-pointer"
+                >
+                  {isRefining ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Apply'}
+                </button>
+              </div>
             </div>
 
-            <div className="flex items-center gap-4">
-              <span>Left-Click Drag: Rotate • Right-Click Drag: Pan • Scroll: Zoom</span>
-              <span className="text-emerald-400 flex items-center gap-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                100% Local PC Execution (Zero Backend)
-              </span>
+            {/* 3. Easy 1-Click Download Section */}
+            <div className="pt-2 border-t border-slate-800 space-y-2.5">
+              <h3 className="text-sm font-extrabold text-white flex items-center gap-2">
+                <Download className="w-4 h-4 text-emerald-400" />
+                2. Easy 1-Click Download
+              </h3>
+
+              <button
+                onClick={async () => {
+                  await exportModelToGLTF(activeModel, true, detailStyle);
+                  notify(`Downloaded "${activeModel.name}.glb" (with Colors)!`, 'success');
+                }}
+                className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-xs font-extrabold text-white shadow-lg shadow-emerald-600/20 flex items-center justify-center gap-2 transition cursor-pointer"
+              >
+                <Download className="w-4 h-4" />
+                Download .GLB (3D Model + Colors)
+              </button>
+
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  onClick={() => {
+                    exportModelToOBJ(activeModel, detailStyle);
+                    notify(`Downloaded "${activeModel.name}.obj"!`, 'success');
+                  }}
+                  className="py-2.5 px-3 rounded-xl bg-[#13192b] hover:bg-slate-800 border border-slate-700 text-xs font-bold text-slate-200 transition cursor-pointer"
+                >
+                  Download .OBJ
+                </button>
+                <button
+                  onClick={() => {
+                    exportModelToSTL(activeModel, detailStyle);
+                    notify(`Downloaded "${activeModel.name}.stl" (3D Print)!`, 'success');
+                  }}
+                  className="py-2.5 px-3 rounded-xl bg-[#13192b] hover:bg-slate-800 border border-slate-700 text-xs font-bold text-slate-200 transition cursor-pointer"
+                >
+                  Download .STL
+                </button>
+              </div>
             </div>
-          </div>
-        </main>
-
-        {/* RIGHT PANEL: Color, Paint & Part Inspector Studio */}
-        <RightStudioPanel
-          model={activeModel}
-          selectedPartId={selectedPartId}
-          interactionMode={interactionMode}
-          activePaintColor={activePaintColor}
-          activePaintFinish={activePaintFinish}
-          onSelectPart={setSelectedPartId}
-          onSetInteractionMode={setInteractionMode}
-          onSetActivePaintColor={setActivePaintColor}
-          onSetActivePaintFinish={setActivePaintFinish}
-          onApplyPaintToPart={handleApplyPaintToPart}
-          onApplyColorToAllParts={handleApplyColorToAllParts}
-          onApplyTheme={handleApplyTheme}
-          onUpdatePart={handleUpdatePart}
-          onAddPart={handleAddPart}
-          onDuplicatePart={handleDuplicatePart}
-          onDeletePart={handleDeletePart}
-        />
-      </div>
-
-      {/* ==================== MODALS ==================== */}
-      {showComparisonModal && (
-        <DualComparisonModal
-          pair={activePair}
-          onSelectVariation={handleSelectVariation}
-          onClose={() => setShowComparisonModal(false)}
-        />
+          </aside>
+        </div>
       )}
 
+      {/* ==================== MODALS ==================== */}
       {showApiKeyModal && (
         <ApiKeyModal
           config={geminiConfig}
@@ -945,68 +1072,6 @@ export function App() {
           onCaptureScreenshot={() => setScreenshotTrigger((n) => n + 1)}
           onClose={() => setShowExportModal(false)}
         />
-      )}
-
-      {showShortcutsModal && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="w-full max-w-lg bg-[#101420] border border-slate-700/80 rounded-2xl shadow-2xl overflow-hidden">
-            <div className="px-6 py-4 bg-gradient-to-r from-indigo-950/70 to-slate-900 border-b border-slate-800 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-xl bg-indigo-500/20 border border-indigo-500/40 flex items-center justify-center text-indigo-400">
-                  <Cpu className="w-5 h-5" />
-                </div>
-                <div>
-                  <h2 className="text-base font-bold text-white">
-                    PC Desktop Shortcuts & Windows .EXE Build
-                  </h2>
-                  <p className="text-xs text-slate-400">
-                    Standalone Windows x64 Desktop Application
-                  </p>
-                </div>
-              </div>
-              <button
-                onClick={() => setShowShortcutsModal(false)}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div className="p-6 space-y-4">
-              <div className="grid grid-cols-2 gap-2.5 text-xs">
-                {[
-                  { key: 'V', desc: 'Select & Inspect Part Mode' },
-                  { key: 'P', desc: 'Click-to-Paint Color Brush' },
-                  { key: 'W', desc: 'Toggle 3D Wireframe' },
-                  { key: 'R', desc: 'Toggle Auto-Spin Turntable' },
-                  { key: 'Ctrl + Z', desc: 'Undo Last Paint / Edit' },
-                  { key: 'Ctrl + Y', desc: 'Redo Last Paint / Edit' },
-                  { key: 'Ctrl + E', desc: 'Open Download / Export Window' },
-                  { key: 'Mouse Wheel', desc: 'Zoom In / Out 3D Viewport' },
-                ].map((sc) => (
-                  <div
-                    key={sc.key}
-                    className="p-2.5 rounded-xl bg-[#151a2a] border border-slate-800 flex items-center justify-between"
-                  >
-                    <span className="text-slate-300">{sc.desc}</span>
-                    <kbd className="px-2 py-0.5 rounded bg-slate-900 border border-slate-700 text-indigo-300 font-mono text-[11px]">
-                      {sc.key}
-                    </kbd>
-                  </div>
-                ))}
-              </div>
-
-              <div className="p-3.5 rounded-xl bg-indigo-950/30 border border-indigo-500/30 text-xs text-slate-300 space-y-1.5 leading-relaxed">
-                <div className="font-bold text-white">
-                  Windows .EXE Build (GitHub Actions Automated Pipeline):
-                </div>
-                <p>
-                  This repository includes <code className="text-indigo-300">.github/workflows/build-exe.yml</code> which automatically builds both a <strong>Portable Windows .EXE</strong> (no install required) and a <strong>Windows Setup Installer .EXE</strong> on GitHub Actions (<code className="text-indigo-300">windows-latest</code>) and uploads them as downloadable artifacts!
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
       )}
     </div>
   );

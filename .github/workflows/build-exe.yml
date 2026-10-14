@@ -8,14 +8,14 @@ on:
       - 'arena/**'
     tags:
       - 'v*'
-  pull_request:
-    branches:
-      - main
-      - master
   workflow_dispatch:
 
 permissions:
   contents: write
+
+concurrency:
+  group: build-exe-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build-windows-exe:
@@ -57,15 +57,24 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      - name: Publish .EXE Files to GitHub Release (v1.0.0 Latest) for Direct Website Download
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        shell: pwsh
-        run: |
-          $exeFiles = Get-ChildItem -Path release -Filter *.exe | ForEach-Object { $_.FullName }
-          gh release view v1.0.0 > $null 2>&1
-          if ($LASTEXITCODE -eq 0) {
-            gh release upload v1.0.0 $exeFiles --clobber
-          } else {
-            gh release create v1.0.0 $exeFiles --title "Forge3D AI Studio v1.0.0 (Windows PC x64)" --notes "Official Windows 64-bit Desktop Release of Forge3D AI Studio (Portable .EXE & Setup Installer .EXE)." --target "${{ github.sha }}"
-          }
+      - name: Publish .EXE Files to GitHub Release (v1.0.1 Latest) for Direct Website Download
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.0.1
+          target_commitish: ${{ github.sha }}
+          name: Forge3D AI Studio v1.0.1 (Windows PC x64)
+          body: |
+            ## Forge3D AI Studio v1.0.1 — Official Windows PC (64-Bit) Release
+            ### What's New in v1.0.1:
+            - **Streamlined 3-Step Desktop UI:** Clean, easy-to-use flow: `1. Prompt & Image` → `2. Choose Best (Option A vs B)` → `3. 3D Preview, Color & Download`.
+            - **Custom Gemini Model Support:** Add and save any custom Gemini model name (e.g., `gemini-2.5-flash-preview-05-20`, `gemini-2.0-pro-exp`, or auto-fetch models directly from your API key).
+            - **Simplified Click-to-Paint Color & Material Studio** + 1-Click `.GLB`, `.OBJ`, and `.STL` downloads.
+
+            ### Downloads:
+            - **Forge3D-AI-Studio-Portable-x64.exe** — Portable Windows `.exe` (No installation needed, double-click to launch)
+            - **Forge3D-AI-Studio-Setup-x64.exe** — Standard Windows Installer (Creates Desktop & Start Menu shortcuts)
+          draft: false
+          prerelease: false
+          files: |
+            release/Forge3D-AI-Studio-Portable-x64.exe
+            release/Forge3D-AI-Studio-Setup-x64.exe
