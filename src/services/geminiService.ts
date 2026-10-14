@@ -26,6 +26,11 @@ const VALID_PRIMITIVES: PrimitiveType[] = [
   'extrude',
 ];
 
+export function normalizeModelName(rawModel: string): string {
+  const trimmed = (rawModel || 'gemini-2.5-flash').trim();
+  return trimmed.replace(/^models\//i, '') || 'gemini-2.5-flash';
+}
+
 function clamp(val: number, min: number, max: number): number {
   if (typeof val !== 'number' || isNaN(val)) return min;
   return Math.max(min, Math.min(max, val));
@@ -73,22 +78,16 @@ export function sanitizePart(raw: any, index: number): Part3D {
   const color = sanitizeHex(raw?.color, '#6366f1');
   const emissiveIntensity = clamp(Number(raw?.emissiveIntensity ?? 0), 0, 3);
   const emissive =
-    emissiveIntensity > 0.05 ? sanitizeHex(raw?.emissive, color) : sanitizeHex(raw?.emissive, '#000000');
+    emissiveIntensity > 0.05
+      ? sanitizeHex(raw?.emissive, color)
+      : sanitizeHex(raw?.emissive, '#000000');
 
   return {
     id: typeof raw?.id === 'string' && raw.id ? raw.id : `part_${index + 1}_${Date.now()}`,
     name: typeof raw?.name === 'string' && raw.name ? raw.name : `Component ${index + 1}`,
     type,
-    position: [
-      clamp(pos[0], -6, 6),
-      clamp(pos[1], -2, 8),
-      clamp(pos[2], -6, 6),
-    ],
-    rotation: [
-      clamp(rot[0], -360, 360),
-      clamp(rot[1], -360, 360),
-      clamp(rot[2], -360, 360),
-    ],
+    position: [clamp(pos[0], -6, 6), clamp(pos[1], -2, 8), clamp(pos[2], -6, 6)],
+    rotation: [clamp(rot[0], -360, 360), clamp(rot[1], -360, 360), clamp(rot[2], -360, 360)],
     scale,
     color,
     metalness: clamp(Number(raw?.metalness ?? 0.4), 0, 1),
@@ -96,11 +95,14 @@ export function sanitizePart(raw: any, index: number): Part3D {
     emissive,
     emissiveIntensity,
     opacity: clamp(Number(raw?.opacity ?? 1), 0.15, 1),
-    transparent: Boolean(raw?.transparent || (raw?.opacity !== undefined && Number(raw.opacity) < 0.95)),
+    transparent: Boolean(
+      raw?.transparent || (raw?.opacity !== undefined && Number(raw.opacity) < 0.95)
+    ),
     mirrorX: Boolean(raw?.mirrorX),
     mirrorZ: Boolean(raw?.mirrorZ),
     radialCount: raw?.radialCount ? clamp(Math.round(Number(raw.radialCount)), 2, 16) : undefined,
-    radialRadius: raw?.radialRadius !== undefined ? clamp(Number(raw.radialRadius), 0.1, 4) : undefined,
+    radialRadius:
+      raw?.radialRadius !== undefined ? clamp(Number(raw.radialRadius), 0.1, 4) : undefined,
     role: ['primary', 'secondary', 'accent', 'dark', 'glow', 'glass'].includes(raw?.role)
       ? raw.role
       : undefined,
@@ -138,7 +140,7 @@ function parseDataUrl(dataUrl: string): { mimeType: string; base64Data: string }
 }
 
 /**
- * Tests whether the user's Gemini API key is valid
+ * Tests whether the user's Gemini API key and selected/custom model work
  */
 export async function testGeminiApiKey(config: GeminiConfig): Promise<{
   ok: boolean;
@@ -149,10 +151,10 @@ export async function testGeminiApiKey(config: GeminiConfig): Promise<{
     return { ok: false, message: 'Please enter your Gemini API Key first.' };
   }
 
-  const model = config.model || 'gemini-2.5-flash';
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(
-    key
-  )}`;
+  const model = normalizeModelName(config.model);
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
+    model
+  )}:generateContent?key=${encodeURIComponent(key)}`;
 
   try {
     const res = await fetch(url, {
@@ -167,10 +169,10 @@ export async function testGeminiApiKey(config: GeminiConfig): Promise<{
     if (!res.ok) {
       const errJson = await res.json().catch(() => ({}));
       const msg = errJson?.error?.message || `HTTP ${res.status}`;
-      return { ok: false, message: `Gemini API Error: ${msg}` };
+      return { ok: false, message: `Error (${model}): ${msg}` };
     }
 
-    return { ok: true, message: `Connected to ${model} successfully!` };
+    return { ok: true, message: `Connected to "${model}" successfully!` };
   } catch (err: any) {
     return {
       ok: false,
@@ -179,50 +181,77 @@ export async function testGeminiApiKey(config: GeminiConfig): Promise<{
   }
 }
 
+/**
+ * Fetches all generateContent-capable Gemini models available for the user's API key
+ */
+export async function fetchAvailableGeminiModels(apiKey: string): Promise<string[]> {
+  const key = apiKey.trim();
+  if (!key) return [];
+  try {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(key)}`
+    );
+    if (!res.ok) return [];
+    const data = await res.json();
+    if (!Array.isArray(data?.models)) return [];
+    return data.models
+      .filter(
+        (m: any) =>
+          Array.isArray(m?.supportedGenerationMethods) &&
+          m.supportedGenerationMethods.includes('generateContent') &&
+          typeof m?.name === 'string' &&
+          m.name.includes('gemini')
+      )
+      .map((m: any) => String(m.name).replace(/^models\//i, ''));
+  } catch {
+    return [];
+  }
+}
+
 const DUAL_GENERATION_SYSTEM_PROMPT = `You are Forge3D AI, a master 3D CAD & Three.js procedural model architect.
-Given a user's text prompt and/or reference image, you MUST design TWO DISTINCT, HIGHLY DETAILED 3D model variations ("variationA" and "variationB") so the user can compare both side-by-side and choose their favorite.
+Given a user's text prompt and/or reference image, you MUST design TWO DISTINCT, HIGHLY DETAILED 3D model variations ("variationA" and "variationB") so the user can compare both side-by-side and choose their favorite before opening the final preview.
 
 CRITICAL DESIGN RULES FOR REALISTIC, MULTI-PART 3D MODELS:
-1. Each variation ("variationA" and "variationB") MUST have between 12 and 24 well-structured 3D parts in its "parts" array.
-2. Make "variationA" and "variationB" genuinely distinct interpretations:
-   - Variation A: Sleek, accurate, aerodynamic, or classic structural interpretation.
-   - Variation B: Heavy, armored, stylized, ornate, or alternative structural design.
+1. Each variation ("variationA" and "variationB") MUST have between 14 and 24 well-structured 3D parts in its "parts" array.
+2. Make "variationA" and "variationB" genuinely distinct designs:
+   - Variation A: Precision, sleek, classic, or realistic structural build.
+   - Variation B: Stylized, armored, ornate, or creative alternative build.
 3. Coordinate System:
    - Y is UP (ground is y = 0.0, build upward between y = 0.1 and y = 4.5).
    - X is Left/Right (-3.0 to +3.0). Center spine is x = 0.
    - Z is Front/Back (-3.0 to +3.0). Front faces +Z.
 4. Available Primitive Types ("type"):
-   - "rounded_box" (best for hulls, armor plates, torsos, bodies, cabins, limbs, blocks)
+   - "rounded_box" (hulls, armor plates, torsos, bodies, cabins, limbs, blocks)
    - "box" (sharp panels, blades, strips, screens)
-   - "cylinder" (wheels, barrels, pillars, thrusters, necks, grips, legs; note: default cylinder axis is Y; rotate [0,0,90] for X-axis wheels or [90,0,0] for Z-axis barrels)
+   - "cylinder" (wheels, barrels, pillars, thrusters, necks, grips, legs; rotate [0,0,90] for X-axis wheels or [90,0,0] for Z-axis barrels)
    - "sphere" (heads, joints, energy cores, domes, eyes, cockpit bubbles)
    - "hemisphere" (domes, helmets, caps, shoulders)
    - "cone" (tips, horns, spikes, noses, roofs, nozzles)
-   - "capsule" (organic limbs, fuselage pods, fuel tanks, fingers)
+   - "capsule" (organic limbs, fuselage pods, fuel tanks)
    - "torus" (glowing rings, halos, wheel rims, thruster shrouds)
-   - "octahedron" | "dodecahedron" | "icosahedron" (crystals, gems, low-poly rocks, pommels)
-5. USE SYMMETRY & RADIAL MODIFIERS TO DOUBLE DETAIL EFFORTLESSLY:
-   - Set "mirrorX": true on any part with position[0] > 0.05 (like wheels, arms, legs, wings, eyes, headlights, shoulders, side engines) to automatically create the symmetrical left/right pair!
-   - Set "mirrorZ": true when front/back symmetry is also needed.
-   - Set "radialCount": N (e.g. 4, 6, 8) and "radialRadius": R for circular arrays around Y=0 (like drone rotors, flower petals, pillar rings, thruster nozzles, crown spikes).
+   - "octahedron" | "dodecahedron" | "icosahedron" (crystals, gems, pommels)
+5. USE SYMMETRY & RADIAL MODIFIERS:
+   - Set "mirrorX": true on any part with position[0] > 0.05 (wheels, arms, legs, wings, eyes, headlights, shoulders) to automatically create the symmetrical left/right pair!
+   - Set "mirrorZ": true when front/back symmetry is needed.
+   - Set "radialCount": N (e.g. 4, 6, 8) and "radialRadius": R for circular arrays around Y=0.
 6. RICH COLORS & PBR MATERIALS:
-   - Give every part an accurate, vibrant hex "color" (#RRGGBB). If an image is provided, match the colors, silhouette, and key features of the image!
+   - Give every part an accurate, vibrant hex "color" (#RRGGBB).
    - Set "metalness" (0.0 to 0.95) and "roughness" (0.05 to 0.9).
-   - For glowing parts (eyes, neon strips, thrusters, crystals, screens, lasers), set "emissive": "#RRGGBB", "emissiveIntensity": 1.8, and "role": "glow".
-   - For glass/visors/windshields/water, set "opacity": 0.48, "transparent": true, and "role": "glass".
+   - For glowing parts, set "emissive": "#RRGGBB", "emissiveIntensity": 1.8, and "role": "glow".
+   - For glass/visors/windshields, set "opacity": 0.48, "transparent": true, and "role": "glass".
    - Assign "role" to each part from: "primary" | "secondary" | "accent" | "dark" | "glow" | "glass".
 
 Return ONLY valid JSON matching this exact structure:
 {
   "variationA": {
-    "name": "Model A Title",
-    "subtitle": "Variation A — Short Style Subtitle",
-    "description": "1-sentence description of Variation A's design & features",
-    "styleTag": "Sleek / Precision",
+    "name": "Model A Name",
+    "subtitle": "Variation A — Precision Build",
+    "description": "Short description of Variation A",
+    "styleTag": "Precision 3D",
     "parts": [
       {
         "id": "part_1",
-        "name": "Main Body Hull",
+        "name": "Main Body",
         "type": "rounded_box",
         "position": [0, 1.2, 0],
         "rotation": [0, 0, 0],
@@ -241,52 +270,51 @@ Return ONLY valid JSON matching this exact structure:
     ]
   },
   "variationB": {
-    "name": "Model B Title",
-    "subtitle": "Variation B — Short Style Subtitle",
-    "description": "1-sentence description of Variation B's design & features",
-    "styleTag": "Armored / Stylized",
-    "parts": [ ...12 to 24 parts... ]
+    "name": "Model B Name",
+    "subtitle": "Variation B — Stylized Build",
+    "description": "Short description of Variation B",
+    "styleTag": "Stylized 3D",
+    "parts": [ ...14 to 24 parts... ]
   }
 }`;
 
-/**
- * Generates TWO 3D Model Variations (A & B) from Prompt and/or Image using the User's Gemini API Key
- */
 export async function generateDual3DModelsWithGemini(params: {
   prompt: string;
   imageDataUrl?: string;
   detailStyle: DetailStyle;
-  imageMode?: 'dual-ai' | 'ai-plus-voxel';
+  preferredColorHex?: string;
   geminiConfig: GeminiConfig;
 }): Promise<GenerationPair> {
-  const { prompt, imageDataUrl, detailStyle, imageMode = 'dual-ai', geminiConfig } = params;
+  const { prompt, imageDataUrl, detailStyle, preferredColorHex, geminiConfig } = params;
   const apiKey = geminiConfig.apiKey.trim();
 
   if (!apiKey) {
-    throw new Error(
-      'Gemini API Key missing! Please click the "Gemini API Key" button in the top bar and enter your Google Gemini API key.'
-    );
+    throw new Error('Please enter your Gemini API Key first.');
   }
 
-  const modelName = geminiConfig.model || 'gemini-2.5-flash';
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${encodeURIComponent(
-    apiKey
-  )}`;
+  const modelName = normalizeModelName(geminiConfig.model);
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
+    modelName
+  )}:generateContent?key=${encodeURIComponent(apiKey)}`;
 
   const styleInstruction =
     detailStyle === 'voxel-blocky'
-      ? 'Style preference: Voxel / Blocky / Lego-inspired cubic proportions using box primitives.'
+      ? 'Style preference: Voxel / Blocky cubic proportions.'
       : detailStyle === 'stylized-lowpoly'
-      ? 'Style preference: Clean Stylized Game Asset with bold geometric shapes and vibrant contrast.'
-      : 'Style preference: High-Detail Studio 3D Model with smooth rounded_box, cylinder, sphere, capsule, cone, and torus parts.';
+      ? 'Style preference: Clean Stylized Game Asset.'
+      : 'Style preference: High-Detail Smooth Studio 3D Model.';
+
+  const colorHint = preferredColorHex
+    ? `Primary Color Preference requested by user: ${preferredColorHex} (harmonize accent, secondary, dark, and glow parts around this color).`
+    : '';
 
   const userPromptText = prompt.trim()
-    ? `User Prompt: "${prompt.trim()}"\n${styleInstruction}\n${
+    ? `User Prompt: "${prompt.trim()}"\n${styleInstruction}\n${colorHint}\n${
         imageDataUrl
-          ? 'Analyze the attached reference image carefully: extract its exact subject, proportions, colors, materials, and structural components, and combine it with the user prompt to build two detailed 3D variations (variationA and variationB).'
-          : 'Build two detailed, multi-part 3D model variations (variationA and variationB) for this request.'
+          ? 'Analyze the attached reference image carefully and combine it with the prompt to build two detailed 3D variations (variationA and variationB).'
+          : 'Build two detailed, multi-part 3D model variations (variationA and variationB).'
       }`
-    : `Analyze the attached reference image carefully. Identify the main object/character/vehicle/item, its sub-parts, proportions, and exact color palette, and build two detailed multi-part 3D model variations (variationA and variationB) of the object in the image. ${styleInstruction}`;
+    : `Analyze the attached reference image carefully and build two detailed multi-part 3D model variations (variationA and variationB) matching the object in the image.\n${styleInstruction}\n${colorHint}`;
 
   const contentParts: any[] = [{ text: DUAL_GENERATION_SYSTEM_PROMPT }, { text: userPromptText }];
 
@@ -317,7 +345,7 @@ export async function generateDual3DModelsWithGemini(params: {
   if (!response.ok) {
     const errData = await response.json().catch(() => ({}));
     const errMsg = errData?.error?.message || `HTTP Error ${response.status}`;
-    throw new Error(`Gemini API Error: ${errMsg}`);
+    throw new Error(`Gemini API Error (${modelName}): ${errMsg}`);
   }
 
   const data = await response.json();
@@ -334,66 +362,43 @@ export async function generateDual3DModelsWithGemini(params: {
     ? rawA.parts.map((p: any, idx: number) => sanitizePart(p, idx))
     : [];
 
-  let partsB: Part3D[] = Array.isArray(rawB?.parts)
+  const partsB: Part3D[] = Array.isArray(rawB?.parts)
     ? rawB.parts.map((p: any, idx: number) => sanitizePart(p, idx))
     : [];
 
   if (partsA.length === 0) {
-    throw new Error('Gemini did not return valid 3D parts. Please refine your prompt and try again.');
-  }
-
-  // If user chose 'ai-plus-voxel' and uploaded an image, make Variation B a direct 3D Voxel Relief Sculpture from the image!
-  let variationBSpec: Model3DSpec;
-  if (imageDataUrl && imageMode === 'ai-plus-voxel') {
-    const voxelParts = await generate3DReliefPartsFromImage(imageDataUrl, 'bas-relief-emblem', 20);
-    if (voxelParts.length > 0) {
-      partsB = voxelParts;
-    }
-    variationBSpec = {
-      id: `model_b_${Date.now()}`,
-      name: `${rawA?.name || 'Image'} — 3D Voxel Relief`,
-      subtitle: 'Variation B — Direct Pixel-Extruded 3D Relief Mesh',
-      description:
-        'Directly extruded 3D voxel & depth-relief sculpture sampled from your uploaded image pixels with custom backing plate.',
-      styleTag: '3D Voxel Relief',
-      createdAt: new Date().toISOString(),
-      promptUsed: prompt,
-      sourceImageUrl: imageDataUrl,
-      parts: partsB,
-    };
-  } else {
-    variationBSpec = {
-      id: `model_b_${Date.now()}`,
-      name: rawB?.name || 'Variation B Concept',
-      subtitle: rawB?.subtitle || 'Variation B — Alternative Stylized Build',
-      description:
-        rawB?.description ||
-        'Alternative structural 3D interpretation with distinct silhouette and material detailing.',
-      styleTag: rawB?.styleTag || 'Stylized Build',
-      createdAt: new Date().toISOString(),
-      promptUsed: prompt,
-      sourceImageUrl: imageDataUrl,
-      parts: partsB.length > 0 ? partsB : partsA,
-    };
+    throw new Error('Gemini did not return valid 3D parts. Please try again.');
   }
 
   const variationASpec: Model3DSpec = {
     id: `model_a_${Date.now()}`,
-    name: rawA?.name || 'Variation A Concept',
-    subtitle: rawA?.subtitle || 'Variation A — Precision Structural Build',
+    name: rawA?.name || 'Variation A',
+    subtitle: rawA?.subtitle || 'Option A — Precision 3D Build',
     description:
-      rawA?.description ||
-      'Multi-part 3D assembly with balanced proportions, PBR materials, and symmetry.',
-    styleTag: rawA?.styleTag || 'Precision 3D',
+      rawA?.description || 'Multi-part 3D model with balanced proportions and PBR materials.',
+    styleTag: rawA?.styleTag || 'Option A',
     createdAt: new Date().toISOString(),
     promptUsed: prompt,
     sourceImageUrl: imageDataUrl,
     parts: partsA,
   };
 
+  const variationBSpec: Model3DSpec = {
+    id: `model_b_${Date.now()}`,
+    name: rawB?.name || 'Variation B',
+    subtitle: rawB?.subtitle || 'Option B — Stylized 3D Build',
+    description:
+      rawB?.description || 'Alternative structural 3D interpretation with distinct detailing.',
+    styleTag: rawB?.styleTag || 'Option B',
+    createdAt: new Date().toISOString(),
+    promptUsed: prompt,
+    sourceImageUrl: imageDataUrl,
+    parts: partsB.length > 0 ? partsB : partsA,
+  };
+
   return {
     id: `pair_${Date.now()}`,
-    prompt: prompt || 'Image-to-3D Generation',
+    prompt: prompt || 'Image-to-3D Model',
     imageUrl: imageDataUrl,
     detailStyle,
     createdAt: new Date().toISOString(),
@@ -402,9 +407,6 @@ export async function generateDual3DModelsWithGemini(params: {
   };
 }
 
-/**
- * Refines or modifies the currently selected 3D model using a natural language instruction via Gemini API
- */
 export async function refineModelWithGemini(params: {
   currentModel: Model3DSpec;
   instruction: string;
@@ -414,15 +416,15 @@ export async function refineModelWithGemini(params: {
   const apiKey = geminiConfig.apiKey.trim();
 
   if (!apiKey) {
-    throw new Error('Please enter your Gemini API Key first to use AI Refine.');
+    throw new Error('Please enter your Gemini API Key first.');
   }
 
-  const modelName = geminiConfig.model || 'gemini-2.5-flash';
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${encodeURIComponent(
-    apiKey
-  )}`;
+  const modelName = normalizeModelName(geminiConfig.model);
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
+    modelName
+  )}:generateContent?key=${encodeURIComponent(apiKey)}`;
 
-  const systemPrompt = `You are Forge3D AI Editor. You will receive the current 3D model JSON ("name", "description", "parts") and a user modification instruction (which may be in English, Hindi, or Hinglish, e.g., "iske wheels bade kar do", "add wings on the back", "color gold aur black kar do").
+  const systemPrompt = `You are Forge3D AI Editor. You will receive the current 3D model JSON ("name", "description", "parts") and a user modification instruction.
 Modify existing parts and/or add new parts to fulfill the user's instruction accurately while keeping the rest of the model intact.
 Return ONLY valid JSON with:
 {
@@ -434,7 +436,7 @@ Return ONLY valid JSON with:
   const compactCurrent = {
     name: currentModel.name,
     description: currentModel.description,
-    parts: currentModel.parts.slice(0, 45), // keep payload concise
+    parts: currentModel.parts.slice(0, 45),
   };
 
   const response = await fetch(url, {
@@ -485,10 +487,7 @@ Return ONLY valid JSON with:
   };
 }
 
-/**
- * Smart Local / Offline Demo Generator (if user wants to test dual generation from an image or prompt without an API key)
- */
-export async function generateSmartLocalDualPair(params: {
+export async function generateFallbackPair(params: {
   prompt: string;
   imageDataUrl?: string;
   detailStyle: DetailStyle;
@@ -496,36 +495,33 @@ export async function generateSmartLocalDualPair(params: {
   const { prompt, imageDataUrl, detailStyle } = params;
   const lower = prompt.toLowerCase();
 
-  // If user uploaded an image, we can build an instant 3D Voxel Sculpture (A) and 3D Bas-Relief Emblem (B) right from the image pixels!
   if (imageDataUrl) {
     const voxelParts = await generate3DReliefPartsFromImage(imageDataUrl, 'voxel-sculpture', 22);
     const reliefParts = await generate3DReliefPartsFromImage(imageDataUrl, 'bas-relief-emblem', 22);
 
     if (voxelParts.length > 0 && reliefParts.length > 0) {
       return {
-        id: `local_img_pair_${Date.now()}`,
-        prompt: prompt || 'Image 3D Reconstruction',
+        id: `img_pair_${Date.now()}`,
+        prompt: prompt || 'Image 3D Model',
         imageUrl: imageDataUrl,
         detailStyle,
         createdAt: new Date().toISOString(),
         variationA: {
-          id: `img_voxel_a_${Date.now()}`,
-          name: prompt ? `${prompt.slice(0, 24)} (Voxel 3D)` : '3D Voxel Sculpture',
-          subtitle: 'Variation A — Free-Standing 3D Voxel Mesh',
-          description:
-            'Extruded 3D voxel geometry generated directly from your uploaded image colors and luminance depth.',
-          styleTag: '3D Voxel Mesh',
+          id: `img_a_${Date.now()}`,
+          name: prompt ? `${prompt.slice(0, 24)} (Option A)` : '3D Voxel Model',
+          subtitle: 'Option A — Free-Standing 3D Mesh',
+          description: 'Extruded 3D geometry generated from your uploaded image.',
+          styleTag: '3D Mesh',
           createdAt: new Date().toISOString(),
           sourceImageUrl: imageDataUrl,
           parts: voxelParts,
         },
         variationB: {
-          id: `img_relief_b_${Date.now()}`,
-          name: prompt ? `${prompt.slice(0, 24)} (3D Relief)` : '3D Bas-Relief Trophy',
-          subtitle: 'Variation B — Embossed 3D Relief with Pedestal',
-          description:
-            'Smooth beveled 3D bas-relief emblem mounted on a metallic display backing plate and stand.',
-          styleTag: '3D Relief Trophy',
+          id: `img_b_${Date.now()}`,
+          name: prompt ? `${prompt.slice(0, 24)} (Option B)` : '3D Relief Model',
+          subtitle: 'Option B — Embossed 3D Relief with Stand',
+          description: 'Beveled 3D relief mounted on a metallic display stand.',
+          styleTag: '3D Relief',
           createdAt: new Date().toISOString(),
           sourceImageUrl: imageDataUrl,
           parts: reliefParts,
@@ -534,7 +530,6 @@ export async function generateSmartLocalDualPair(params: {
     }
   }
 
-  // Match closest preset pair based on keywords
   let basePair = PRESET_GENERATION_PAIRS[0];
   if (
     lower.includes('robot') ||
@@ -566,7 +561,7 @@ export async function generateSmartLocalDualPair(params: {
   }
 
   const clonePair: GenerationPair = JSON.parse(JSON.stringify(basePair));
-  clonePair.id = `pair_demo_${Date.now()}`;
+  clonePair.id = `pair_${Date.now()}`;
   clonePair.prompt = prompt || basePair.prompt;
   clonePair.detailStyle = detailStyle;
   clonePair.createdAt = new Date().toISOString();
