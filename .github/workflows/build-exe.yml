@@ -56,3 +56,16 @@ jobs:
             release/*.exe
           if-no-files-found: error
           retention-days: 30
+
+      - name: Publish .EXE Files to GitHub Release (v1.0.0 Latest) for Direct Website Download
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: pwsh
+        run: |
+          $exeFiles = Get-ChildItem -Path release -Filter *.exe | ForEach-Object { $_.FullName }
+          gh release view v1.0.0 > $null 2>&1
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload v1.0.0 $exeFiles --clobber
+          } else {
+            gh release create v1.0.0 $exeFiles --title "Forge3D AI Studio v1.0.0 (Windows PC x64)" --notes "Official Windows 64-bit Desktop Release of Forge3D AI Studio (Portable .EXE & Setup Installer .EXE)." --target "${{ github.sha }}"
+          }
