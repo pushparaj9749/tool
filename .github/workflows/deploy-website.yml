@@ -5,7 +5,6 @@ on:
     branches:
       - main
       - master
-      - 'arena/**'
   pull_request_target:
     types: [opened, synchronize, reopened]
     branches:
@@ -14,7 +13,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
   pages: write
   id-token: write
 
@@ -23,23 +22,8 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  sync-website-branch:
-    name: Sync Website to Main for GitHub Pages
-    if: github.event_name == 'push' && github.ref_name != 'main'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Update main branch ref
-        run: |
-          git push origin HEAD:refs/heads/main --force
-
   deploy-website:
     name: Deploy Product Website (website/ folder only)
-    if: github.ref_name == 'main' || github.event_name == 'pull_request_target'
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
