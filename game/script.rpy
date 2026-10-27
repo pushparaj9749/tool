@@ -7,6 +7,7 @@ init python:
 # Characters
 define pc = Character("Aryan", color="#0080ff")
 define meera = Character("Meera", color="#ff69b4", show_two_window=True)
+define lila = Character("Lila", color="#ffa500")
 define narrator = Narrator()
 
 # Scenes
@@ -46,6 +47,9 @@ label met_meera:
     scene bg_evenralm
     with fade
 
+    show meera normal at left
+    with fade
+
     meera "मैं मीरा हूं। मैं यहां एक हीलर हूं।"
     meera "मैं आपकी मदद करूंगी, डरो मत।"
 
@@ -54,6 +58,9 @@ label met_meera:
     narrator "कुछ दिन बीतते हैं। आप मीरा के साथ ट्रेनिंग करते हैं, जादू सीखते हैं।"
 
     scene bg_training
+    with fade
+
+    show meera smile at right
     with fade
 
     meera "आप बहुत मजबूत हो रहे हैं, आर्यन।"
@@ -72,27 +79,105 @@ label sunset_scene:
     with fade
 
     narrator "Evenralm में सूरज डूब रहा है।"
+
+    show meera normal at left
+    with fade
+
     meera "आर्यन... मैं खुश हूं कि आप यहां आए।"
     pc "मैं भी, मीरा।"
 
-    meera "क्या मैं... आपको किस कर सकती हूं?"
+    menu:
+        "उसके करीब जाएं।":
+            jump close_moment
+        "थोड़ी दूरी बनाए रखें।":
+            meera "ठीक है, हम धीरे-धीरे बढ़ेंगे।"
+            jump meet_lila
+
+label close_moment:
+    scene bg_sunset_kiss
+    with fade
+
+    meera (softly) "क्या मैं... आपको किस कर सकती हूं?"
 
     menu:
         "हां।":
-            scene bg_sunset_kiss
-            with fade
-            meera (softly) "मैं आपको पसंद करती हूं, आर्यन।"
+            meera "मैं आपको पसंद करती हूं, आर्यन।"
             pc "मैं भी आपको पसंद करता हूं, मीरा।"
-            jump ending
+            jump relationship_confirmed
         "अभी नहीं।":
-            meera "ठीक है। हम धीरे-धीरे बढ़ेंगे।"
-            jump ending
+            meera "ठीक है। हम समय लेंगे।"
+            jump meet_lila
+
+label relationship_confirmed:
+    scene bg_sunset_kiss
+    with fade
+
+    narrator "आप दोनों एक दूसरे के करीब आते हैं।"
+    narrator "Evenralm में आपकी नई जिंदगी शुरू होती है, और आपके साथ हैं मीरा।"
+
+    jump ending
+
+label meet_lila:
+    scene bg_training
+    with fade
+
+    show lila happy at right
+    with fade
+
+    lila "अरे आर्यन! मैंने सुना तुम मीरा के साथ ट्रेनिंग कर रहे हो।"
+
+    pc "हां, लिला। वह बहुत अच्छी हीलर है।"
+
+    lila "मैं भी तुम्हारे साथ जादू सीखना चाहती हूं। क्या सिखाओगे मुझे?"
+
+    menu:
+        "हां, खुशी से।":
+            lila "धन्यवाद आर्यन! तुम सबसे अच्छे हो।"
+            jump lila_friend
+        "माफ करना, मैं व्यस्त हूं।":
+            lila "ओह... ठीक है। समझ सकती हूं।"
+            jump lila_sad
+
+label lila_friend:
+    scene bg_evenralm
+    with fade
+
+    narrator "कुछ हफ्ते बाद..."
+    narrator "आप मीरा और लिला दोनों के साथ समय बिताने लगते हैं।"
+
+    show meera smile at left
+    show lila happy at right
+    with fade
+
+    meera "आर्यन, तुम हमारे लिए खास हो।"
+    lila "हां, हम तुम्हारी दोस्ती को पसंद करते हैं।"
+
+    jump ending
+
+label lila_sad:
+    scene bg_evenralm
+    with fade
+
+    show meera normal at left
+    with fade
+
+    meera "चिंता मत करो, लिला। वह अभी समायोजित हो रहा है।"
+
+    narrator "लिला थोड़ी उदास चली जाती है, लेकिन मीरा आपके साथ रहती है।"
+
+    jump ending
 
 label ending:
     scene black
     with fade
 
     narrator "Evenralm में आपकी नई जिंदगी अभी शुरू हुई है।"
-    narrator "और आपके साथ हैं मीरा — आपका पहला प्यार।"
+    narrator "और आपके साथ हैं नए दोस्त — और शायद पहला प्यार भी।"
+
+    menu:
+        "दोबारा खेलें।":
+            jump start
+        "खेल छोड़ें।":
+            return
 
     return
