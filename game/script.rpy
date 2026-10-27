@@ -5,7 +5,7 @@ init python:
     pass
 
 # Characters
-define pc = Character("Aryan", color="#0080ff")
+define aryan = Character("Aryan", color="#0080ff")
 define meera = Character("Meera", color="#ff69b4", show_two_window=True)
 define lila = Character("Lila", color="#ffa500")
 define narrator = Narrator()
@@ -18,7 +18,10 @@ label start:
     narrator "कॉलेज खत्म होने के बाद आपकी जिंदगी कुछ खास नहीं चल रही थी..."
     narrator "कोई नौकरी नहीं, कोई भविष्य नहीं — सिर्फ उम्मीदें टूट रही थीं।"
 
-    pc "क्या यही मेरी जिंदगी है?"
+    show aryan normal at center
+    with fade
+
+    aryan "क्या यही मेरी जिंदगी है?"
 
     narrator "अचानक एक ट्रक सामने आ गया। सब कुछ अंधेरा हो गया।"
 
@@ -31,9 +34,12 @@ label start:
     scene bg_evenralm
     with fade
 
+    show aryan surprised at center
+    with fade
+
     meera "आप कौन हैं? आप यहां के नहीं लगते।"
 
-    pc "मैं... मैं नहीं जानता कि मैं कहां हूं।"
+    aryan "मैं... मैं नहीं जानता कि मैं कहां हूं।"
 
     menu:
         "मैं आर्यन हूं, दूसरी दुनिया से आया हूं।":
@@ -47,24 +53,26 @@ label met_meera:
     scene bg_evenralm
     with fade
 
-    show meera normal at left
+    show aryan normal at left
+    show meera normal at right
     with fade
 
     meera "मैं मीरा हूं। मैं यहां एक हीलर हूं।"
     meera "मैं आपकी मदद करूंगी, डरो मत।"
 
-    pc "धन्यवाद, मीरा।"
+    aryan "धन्यवाद, मीरा।"
 
     narrator "कुछ दिन बीतते हैं। आप मीरा के साथ ट्रेनिंग करते हैं, जादू सीखते हैं।"
 
     scene bg_training
     with fade
 
+    show aryan smile at left
     show meera smile at right
     with fade
 
     meera "आप बहुत मजबूत हो रहे हैं, आर्यन।"
-    pc "यह सब आपके कारण संभव हुआ है।"
+    aryan "यह सब आपके कारण संभव हुआ है।"
 
     menu:
         "उसका हाथ पकड़ें।":
@@ -80,11 +88,12 @@ label sunset_scene:
 
     narrator "Evenralm में सूरज डूब रहा है।"
 
-    show meera normal at left
+    show aryan normal at left
+    show meera normal at right
     with fade
 
     meera "आर्यन... मैं खुश हूं कि आप यहां आए।"
-    pc "मैं भी, मीरा।"
+    aryan "मैं भी, मीरा।"
 
     menu:
         "उसके करीब जाएं।":
@@ -97,12 +106,16 @@ label close_moment:
     scene bg_sunset_kiss
     with fade
 
+    show aryan normal at left
+    show meera smile at right
+    with fade
+
     meera (softly) "क्या मैं... आपको किस कर सकती हूं?"
 
     menu:
         "हां।":
             meera "मैं आपको पसंद करती हूं, आर्यन।"
-            pc "मैं भी आपको पसंद करता हूं, मीरा।"
+            aryan "मैं भी आपको पसंद करता हूं, मीरा।"
             jump relationship_confirmed
         "अभी नहीं।":
             meera "ठीक है। हम समय लेंगे।"
@@ -110,6 +123,10 @@ label close_moment:
 
 label relationship_confirmed:
     scene bg_sunset_kiss
+    with fade
+
+    show aryan smile at left
+    show meera smile at right
     with fade
 
     narrator "आप दोनों एक दूसरे के करीब आते हैं।"
@@ -121,12 +138,13 @@ label meet_lila:
     scene bg_training
     with fade
 
+    show aryan normal at left
     show lila happy at right
     with fade
 
     lila "अरे आर्यन! मैंने सुना तुम मीरा के साथ ट्रेनिंग कर रहे हो।"
 
-    pc "हां, लिला। वह बहुत अच्छी हीलर है।"
+    aryan "हां, लिला। वह बहुत अच्छी हीलर है।"
 
     lila "मैं भी तुम्हारे साथ जादू सीखना चाहती हूं। क्या सिखाओगे मुझे?"
 
@@ -145,7 +163,8 @@ label lila_friend:
     narrator "कुछ हफ्ते बाद..."
     narrator "आप मीरा और लिला दोनों के साथ समय बिताने लगते हैं।"
 
-    show meera smile at left
+    show aryan smile at left
+    show meera smile at center
     show lila happy at right
     with fade
 
@@ -158,7 +177,8 @@ label lila_sad:
     scene bg_evenralm
     with fade
 
-    show meera normal at left
+    show aryan normal at left
+    show meera normal at center
     with fade
 
     meera "चिंता मत करो, लिला। वह अभी समायोजित हो रहा है।"
