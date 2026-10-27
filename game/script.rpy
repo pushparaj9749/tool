@@ -171,7 +171,7 @@ label lila_friend:
     meera "आर्यन, तुम हमारे लिए खास हो।"
     lila "हां, हम तुम्हारी दोस्ती को पसंद करते हैं।"
 
-    jump ending
+    jump evening_stroll
 
 label lila_sad:
     scene bg_evenralm
@@ -184,6 +184,61 @@ label lila_sad:
     meera "चिंता मत करो, लिला। वह अभी समायोजित हो रहा है।"
 
     narrator "लिला थोड़ी उदास चली जाती है, लेकिन मीरा आपके साथ रहती है।"
+
+    jump evening_stroll
+
+label evening_stroll:
+    scene bg_village
+    with fade
+
+    narrator "शाम को गांव की गलियों में टहलते हुए..."
+
+    show aryan normal at left
+    show meera smile at right
+    with fade
+
+    meera "आर्यन, क्या तुमने कभी सोचा था कि तुम्हारी जिंदगी ऐसे बदल जाएगी?"
+    aryan "कभी नहीं। लेकिन मैं खुश हूं कि ऐसा हुआ।"
+
+    menu:
+        "मीरा की आंखों में देखें।":
+            meera "तुम बहुत ईमानदार हो। मुझे अच्छा लगता है।"
+            jump deeper_bond
+        "आसमान की ओर देखें।":
+            meera "आसमान आज बहुत सुंदर है, है ना?"
+            jump deeper_bond
+
+label deeper_bond:
+    scene bg_village_night
+    with fade
+
+    show aryan normal at left
+    show meera shy at right
+    with fade
+
+    meera "आर्यन... मैं तुम्हें बताना चाहती हूं कि मैं क्या महसूस करती हूं।"
+    aryan "बोलो मीरा, मैं सुन रहा हूं।"
+
+    meera "मैं... मैं तुम्हें पसंद करती हूं। सिर्फ एक दोस्त से कहीं ज़्यादा।"
+
+    menu:
+        "मीरा को गले लगाएं।":
+            meera (softly) "धन्यवाद आर्यन। मैं तुम्हारे साथ सुरक्षित महसूस करती हूं।"
+            jump true_love
+        "शब्दों से जवाब दें।":
+            aryan "मीरा, मैं भी तुम्हें पसंद करता हूं। बहुत ज़्यादा।"
+            jump true_love
+
+label true_love:
+    scene bg_village_night
+    with fade
+
+    show aryan smile at left
+    show meera smile at right
+    with fade
+
+    narrator "Evenralm में आपकी कहानी बस शुरू हुई है।"
+    narrator "जादू, रोमांच और प्यार से भरी एक नई जिंदगी।"
 
     jump ending
 
