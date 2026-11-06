@@ -1,0 +1,59 @@
+{
+  "checkpoint": "checkpoints/sft-v0.1/final.pt",
+  "single_turn": [
+    {
+      "mode": "adaptive",
+      "prompt": "Hello ANKIT, who are you?",
+      "response": "P + 5-12 है"
+    },
+    {
+      "mode": "adaptive",
+      "prompt": "नमस्ते अंकित, तुम कौन हो?",
+      "response": "क्या आप किस पूरी तरह है, ?"
+    },
+    {
+      "mode": "adaptive",
+      "prompt": "Bhai, tokenizer kya hota hai?",
+      "response": "3) 57 minute ka liye ek alarm set kar rahe hai."
+    },
+    {
+      "mode": "professional",
+      "prompt": "Explain what a database is.",
+      "response": "3)12358 minute me."
+    },
+    {
+      "mode": "friendly",
+      "prompt": "I finally finished my project!",
+      "response": "I will be a new-d to the right time. I have an common important way, and I can be more than that, and I cannot do not know you like to say: I need it from I's my own name"
+    },
+    {
+      "mode": "professional",
+      "prompt": "दो दिन की छुट्टी के लिए आवेदन लिखो।",
+      "response": "मेरा लॉकिन स्थानी दो है।"
+    },
+    {
+      "mode": "adaptive",
+      "prompt": "What is 15 percent of 240?",
+      "response": "I am aur ek din ka kam der,  2)"
+    },
+    {
+      "mode": "adaptive",
+      "prompt": "Python में फ़ाइल कैसे पढ़ें?",
+      "response": "बाली रेस्तरां है"
+    }
+  ],
+  "multi_turn": [
+    {
+      "user": "My name is Rahul and I am preparing for GATE.",
+      "assistant": "I am not the new-8, and I have a new matter on."
+    },
+    {
+      "user": "Which subject should I start with?",
+      "assistant": "I am in the right."
+    },
+    {
+      "user": "What is my name?",
+      "assistant": "I am not know, and I can be a new-f/t) but I say what you need to the last question."
+    }
+  ]
+}

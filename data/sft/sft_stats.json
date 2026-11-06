@@ -1,0 +1,24 @@
+{
+  "authored_seed_conversations": 87,
+  "authored_seed_examples_after_mode_replication": 261,
+  "hdrs_dialogues_converted": 240,
+  "unique_examples": 501,
+  "train": 462,
+  "val": 39,
+  "by_source": {
+    "authored_seed": 261,
+    "hdrs_hindi_dialogue": 240
+  },
+  "by_lang": {
+    "hinglish": 51,
+    "hi": 324,
+    "en": 126
+  },
+  "by_mode": {
+    "professional": 87,
+    "adaptive": 87,
+    "friendly": 87,
+    "neutral": 240
+  },
+  "total_turns": 3061
+}

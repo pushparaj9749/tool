@@ -1,0 +1,39 @@
+MIT License
+
+Copyright (c) 2026 ANKIT LLM Project
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+---
+
+MODEL WEIGHTS AND TRAINING DATA
+
+The model weights produced by this repository are released under the same MIT
+terms. They are trained on the datasets listed in data/dataset_manifest.json,
+each of which keeps its own licence:
+
+  * IITB English-Hindi corpus (via kumardeepak/nmt-anuvada) - MIT repository
+    licence, upstream corpus intended for research use.
+  * Project Gutenberg selections (via nltk_data) - public domain.
+  * Hinglish-TOP dataset (Google Research) - Apache-2.0 / CC-BY-4.0.
+  * HDRS Hindi dialogue corpus (skmalviya) - MIT.
+  * ANKIT authored seed conversations - MIT (same as this file).
+
+Redistributing this model means redistributing a derivative of those datasets;
+preserve their attribution requirements.

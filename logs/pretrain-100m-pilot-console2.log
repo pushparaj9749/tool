@@ -1,0 +1,28 @@
+[pretrain] resumed from checkpoints/pretrain-100m/crashed.pt at step 50
+[pretrain] params=97,435,392 (97.44M) device=cpu dtype=torch.float32 train_tokens=24,100,344 val_tokens=402,704
+step     51 loss=0.8743 lr=5.32e-04 gnorm=1.35 tok/s=  174.3 eta=   9.7m
+step     55 loss=5.0221 lr=5.14e-04 gnorm=1.88 tok/s=  210.0 eta=   7.7m
+step     60 loss=4.9609 lr=4.89e-04 gnorm=1.44 tok/s=  222.1 eta=   6.9m
+step     65 loss=5.7504 lr=4.61e-04 gnorm=1.90 tok/s=  227.4 eta=   6.4m
+step     70 loss=5.5151 lr=4.32e-04 gnorm=1.29 tok/s=  234.4 eta=   5.8m
+step     75 loss=5.0200 lr=4.01e-04 gnorm=2.34 tok/s=  234.5 eta=   5.5m
+  [eval] step 75 val_loss=7.3507 val_ppl=1557.34 best=7.1705
+step     80 loss=6.0865 lr=3.69e-04 gnorm=1.65 tok/s=  215.8 eta=   5.5m
+step     85 loss=4.8984 lr=3.37e-04 gnorm=1.39 tok/s=  216.4 eta=   5.1m
+step     90 loss=5.1505 lr=3.04e-04 gnorm=1.70 tok/s=  215.0 eta=   4.8m
+step     95 loss=5.0400 lr=2.72e-04 gnorm=1.51 tok/s=  217.5 eta=   4.3m
+step    100 loss=4.6666 lr=2.40e-04 gnorm=1.37 tok/s=  219.8 eta=   3.9m
+  [eval] step 100 val_loss=7.1473 val_ppl=1270.66 best=7.1473
+step    105 loss=6.3619 lr=2.10e-04 gnorm=1.68 tok/s=  207.3 eta=   3.7m
+step    110 loss=5.5270 lr=1.82e-04 gnorm=1.30 tok/s=  207.0 eta=   3.3m
+step    115 loss=5.0570 lr=1.56e-04 gnorm=1.36 tok/s=  207.2 eta=   2.9m
+step    120 loss=5.2771 lr=1.32e-04 gnorm=1.73 tok/s=  206.4 eta=   2.5m
+step    125 loss=5.1949 lr=1.12e-04 gnorm=1.49 tok/s=  204.9 eta=   2.1m
+  [eval] step 125 val_loss=6.9545 val_ppl=1047.85 best=6.9545
+step    130 loss=5.5363 lr=9.40e-05 gnorm=1.40 tok/s=  198.1 eta=   1.7m
+step    135 loss=5.7841 lr=7.99e-05 gnorm=1.40 tok/s=  198.2 eta=   1.3m
+step    140 loss=5.3209 lr=6.95e-05 gnorm=1.30 tok/s=  199.2 eta=   0.9m
+step    145 loss=5.3476 lr=6.28e-05 gnorm=1.18 tok/s=  199.7 eta=   0.4m
+step    150 loss=4.9272 lr=6.01e-05 gnorm=1.27 tok/s=  199.8 eta=   0.0m
+  [eval] step 150 val_loss=6.8460 val_ppl=940.07 best=6.8460
+[pretrain] done: step=150 tokens=153,600 val_loss=6.8460 stop=max_steps -> checkpoints/pretrain-100m/final.pt

@@ -1,0 +1,12 @@
+{
+  "generated_at": "2026-11-06T04:22:46Z",
+  "duration_s": 275.4,
+  "run_id": "sft02",
+  "run_name": "ankit-sft-v0.1",
+  "steps": 189,
+  "init_checkpoint": "checkpoints/pretrain-nano/final.pt",
+  "sft_val_loss": 1.8633840481440227,
+  "stop_reason": "max_steps",
+  "params": 11798784,
+  "train_examples": 509
+}

@@ -1,0 +1,8 @@
+# ANKIT LLM v0.1 — runtime requirements
+# Installed and verified on: Python 3.11.2, Debian, CPU-only (no CUDA device).
+torch>=2.2,<3.0
+numpy>=1.24
+tokenizers>=0.15
+pyyaml>=6.0
+sentencepiece>=0.1.99      # optional baseline tokenizer experiment
+pytest>=8.0                # test suite

@@ -1,47 +1,102 @@
-# Forge3D AI Studio — Desktop PC Edition (.EXE)
+# ANKIT LLM v0.1
 
-**Forge3D AI Studio** is a standalone, zero-backend **PC Desktop 3D Model Generator & Paint Studio** powered by the user's own **Google Gemini API Key** and **Three.js**.
+**A Hindi / English / Hinglish conversational language model built completely from scratch.**
 
----
+Random initialisation → custom byte-level BPE tokenizer → decoder-only Transformer →
+causal pretraining → supervised instruction tuning → three personality modes →
+evaluation → CLI chat + HTTP API.
 
-## ✨ Features
-
-1. **🔑 Bring Your Own Gemini API Key (100% Local on PC):**
-   - Enter your own Google Gemini API key (`AIza...`), stored locally on your PC (`localStorage`).
-   - **Zero Backend:** Requests go directly from your PC to Google Gemini Vision/Text APIs.
-
-2. **🖼️ Image + Prompt to 3D Model:**
-   - Generate 3D models from a **Text Prompt**, a **Reference Image**, or **Image + Prompt combined**.
-   - Supports both **AI 3D Multi-Part Structural Reconstruction** and **Direct Image-to-3D Voxel / Bas-Relief Extrusion**.
-
-3. **🏆 Dual Generation & Side-by-Side Comparison (Option A vs Option B):**
-   - Every generation produces **2 distinct 3D variations (Option A & Option B)**.
-   - Rotate and inspect both models side-by-side in interactive 3D viewports and select the best one to open in the main studio.
-
-4. **🎨 Interactive 3D Color & Material Paint Studio:**
-   - **Click-to-Paint Brush Mode (`P`):** Click any part directly on the 3D model to paint it with custom colors and PBR finishes (*Anodized Metal, Mirror Chrome, Royal Gold, Car Paint Gloss, Matte Clay, Neon Glow, Crystal Glass, Tactical Carbon, Crafted Wood*).
-   - **One-Click AI Color Themes:** 8 curated palettes that harmoniously recolor the entire 3D model.
-   - **Part Outliner & Inspector:** Transform position, rotation, scale, symmetry (`Mirror X`, `Mirror Z`), and add/duplicate/remove 3D parts.
-   - **AI Refine Mode:** Modify the selected 3D model with natural language prompts (English / Hindi / Hinglish).
-
-5. **📦 Easy One-Click Download / Export (`Ctrl + E`):**
-   - **`.GLB`** (Binary glTF 2.0 with full colors & PBR materials)
-   - **`.OBJ`** (Wavefront 3D Mesh)
-   - **`.STL`** (Binary STL for 3D Printing)
-   - **`.GLTF`** (JSON 3D Scene)
-   - **`.PNG`** (High-Res 3D Studio Render)
-   - **`.forge3d.json`** (Save & Reload Editable Project)
+> **Status: honest, work-in-progress release.** The full pipeline is implemented, tested and
+> reproducible, and real training runs have been executed in this repository. The model is
+> **not** a competitive chat model: it was trained on **CPU only** (2 vCPU, 3.8 GB RAM, no GPU)
+> for a few million tokens. See [`PROJECT_STATUS.md`](PROJECT_STATUS.md) for exactly what is
+> done, what is partial, and what is blocked, and [`LIMITATIONS.md`](LIMITATIONS.md) before
+> using any output.
 
 ---
 
-## 💻 Windows `.EXE` Build (GitHub Actions)
+## What is actually here
 
-This repository includes an automated GitHub Actions workflow (`.github/workflows/build-exe.yml`) that compiles the app into standalone Windows 64-bit executables:
+| Component | File(s) | Status |
+|---|---|---|
+| Model architecture (~100M params, RoPE + RMSNorm + SwiGLU, tied embeddings) | `model/` | implemented, tested |
+| Measured parameter count | `model/parameter_count.py`, `reports/parameter_count.json` | measured |
+| Custom tokenizer (byte-level BPE, 32k vocab, trained from scratch) | `tokenizer/` | trained, tested |
+| Dataset pipeline (licence-audited, deduped, split) | `data/`, `data/dataset_manifest.json` | run |
+| Pretraining (resume, checkpoints, LR schedule, eval) | `training/pretrain.py` | executed |
+| Instruction tuning with masked loss | `training/finetune.py` | executed |
+| Inference engine (KV cache, sampling, streaming) | `inference/` | implemented, tested |
+| Multi-turn conversation + 3 personalities | `inference/conversation.py` | implemented, tested |
+| CLI chat | `inference/chat.py` | working |
+| Lightweight HTTP API | `inference/api.py` | working |
+| Evaluation suites (LM, chat, languages, personality, engineering) | `evaluation/` | executed |
+| Unit tests | `tests/` | 38 passing |
 
-- **`Forge3D-AI-Studio-Portable-x64.exe`** — Portable single-file `.exe` (no installation required; double-click to run on any Windows PC).
-- **`Forge3D-AI-Studio-Setup-x64.exe`** — Standard Windows NSIS Installer (creates Desktop & Start Menu shortcuts).
+## Quick start (no GPU required for inference)
 
-### How to Download the `.EXE` from GitHub:
-1. Open the **Actions** tab of this GitHub repository.
-2. Click the latest **"Build Windows Desktop .EXE (Forge3D AI Studio)"** workflow run (or click **Run workflow** to trigger a fresh build).
-3. Scroll down to **Artifacts** and download **`Forge3D-AI-Studio-Windows-EXE`**.
+```bash
+bash scripts/setup_environment.sh        # venv + dependencies (CPU wheel)
+bash scripts/download_data.sh            # fetch licensed corpora into data/raw/
+.venv/bin/python data/prepare_data.py    # normalise / dedupe / split
+.venv/bin/python tokenizer/train_tokenizer.py
+.venv/bin/python data/build_token_shards.py
+.venv/bin/python data/build_sft.py
+bash scripts/run_pretraining.sh configs/pretraining_nano.yaml
+bash scripts/run_finetuning.sh
+bash scripts/run_evaluation.sh
+.venv/bin/python inference/chat.py --checkpoint checkpoints/sft-v0.1/final.pt --mode adaptive
+```
+
+Chat with the trained checkpoint in Python:
+
+```python
+from inference.conversation import ChatEngine
+
+engine = ChatEngine.from_checkpoint("checkpoints/sft-v0.1/final.pt")
+answer = engine.chat_once([{"role": "user", "content": "नमस्ते अंकित"}], mode="adaptive")
+print(answer)
+```
+
+HTTP API:
+
+```bash
+.venv/bin/python inference/api.py --checkpoint checkpoints/sft-v0.1/final.pt --port 8000
+curl -s localhost:8000/chat -H 'content-type: application/json' \
+  -d '{"messages":[{"role":"user","content":"Hello ANKIT"}],"personality":"friendly"}'
+```
+
+## Training on a Colab T4 GPU
+
+```bash
+# notebook: notebooks/ANKIT_LLM_Colab_T4.ipynb   (benchmark -> pilot -> gated long run)
+bash scripts/package_artifacts.sh              # zip tokenizer + shards for Drive (~130 MB)
+python benchmarks/bench_gpu.py --out reports/gpu_benchmark   # run on the GPU host first
+```
+
+`dtype: auto` resolves to **fp16 + GradScaler on a T4** (Turing has no bf16 tensor cores) and
+**bf16 on Ampere+**. Checkpoints are CPU-portable and mirrored to Drive atomically.
+See [`COLAB_GUIDE.md`](COLAB_GUIDE.md) for the full step-by-step.
+
+## Documentation map
+
+- [`PROJECT_STATUS.md`](PROJECT_STATUS.md) — phase-by-phase status with evidence
+- [`TECHNICAL_SPEC.md`](TECHNICAL_SPEC.md) — architecture, tokenizer, data, training, inference design
+- [`ENVIRONMENT_REPORT.md`](ENVIRONMENT_REPORT.md) — hardware, network restrictions, compute options
+- [`EXECUTION_LOG.md`](EXECUTION_LOG.md) — chronological log of real runs and results
+- [`ROADMAP.md`](ROADMAP.md) — what remains, with concrete compute requirements
+- [`MODEL_CARD.md`](MODEL_CARD.md) — model card for the released checkpoint
+- [`LIMITATIONS.md`](LIMITATIONS.md) — known limitations (read this)
+- `reports/` — machine-generated evaluation reports (JSON)
+
+## Non-negotiables honoured
+
+- No pretrained weights of any kind. `AnkitLM` is randomly initialised (`training/pretrain.py` logs the seed).
+- No pretrained tokenizer: the BPE vocabulary is trained on this project's corpus only.
+- Every metric in `reports/` was produced by a run in this repository; nothing is hand-written.
+- Checkpoints are SHA-256 sidecar-verified; `checkpoints/*` and `data/*` are git-ignored so the
+  repository never carries multi-hundred-MB binaries.
+
+## Licence
+
+Code: see [`LICENSE`](LICENSE). Datasets keep their own licences — see
+[`data/dataset_manifest.json`](data/dataset_manifest.json).

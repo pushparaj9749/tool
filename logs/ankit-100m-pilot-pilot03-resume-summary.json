@@ -1,0 +1,20 @@
+{
+  "generated_at": "2026-11-06T03:34:51Z",
+  "duration_s": 537.3,
+  "run_id": "pilot03-resume",
+  "run_name": "ankit-100m-pilot",
+  "params": 97435392,
+  "steps": 150,
+  "tokens_seen": 153600,
+  "tokens_per_step": 1024,
+  "final_val_loss": 6.8459561467170715,
+  "final_val_ppl": 940.0716979000574,
+  "best_val_loss": 6.8459561467170715,
+  "stop_reason": "max_steps",
+  "checkpoints": [
+    "step125",
+    "best-step150",
+    "final",
+    "step150"
+  ]
+}

@@ -1,0 +1,53 @@
+{
+  "generated_at": "2026-11-06T03:00:26.970088+00:00",
+  "sources": {
+    "iitb": {
+      "seen": 3123666,
+      "kept": 1179156,
+      "duplicates": 373533
+    },
+    "gutenberg": {
+      "seen": 47618,
+      "kept": 46475,
+      "duplicates": 62
+    },
+    "hinglish_top": {
+      "seen": 180979,
+      "kept": 145796,
+      "duplicates": 34150
+    }
+  },
+  "counts": {
+    "kept_total": 1371427,
+    "train": 1344105,
+    "val": 13654,
+    "test": 13668
+  },
+  "reject_reasons": {
+    "low_alpha_ratio": 709101,
+    "too_short": 645522,
+    "too_few_words": 217688,
+    "unknown_language": 521,
+    "too_long": 150,
+    "repetitive": 79,
+    "decoding_error": 30
+  },
+  "language_counts": {
+    "hi": 303893,
+    "en": 1009187,
+    "mixed": 4250,
+    "hinglish": 54097
+  },
+  "split_counts": {
+    "train": 1344105,
+    "val": 13654,
+    "test": 13668
+  },
+  "duplicates_removed": 407745,
+  "total_seen": 3352263,
+  "per_source_kept": {
+    "iitb_en_hi": 1179156,
+    "gutenberg": 46475,
+    "hinglish_top": 145796
+  }
+}

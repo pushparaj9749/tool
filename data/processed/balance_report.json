@@ -1,0 +1,9 @@
+{
+  "balanced_language_counts": {
+    "hi": 297797,
+    "mixed": 4157,
+    "en": 342498,
+    "hinglish": 53068
+  },
+  "note": "English capped relative to Hindi for a Hindi/English/Hinglish model"
+}

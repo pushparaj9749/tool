@@ -1,0 +1,24 @@
+{
+  "tokenizer_vocab": 32768,
+  "splits": {
+    "train": {
+      "docs": 697520,
+      "tokens": 24100344,
+      "bytes": 48200688,
+      "path": "data/processed/pretrain_train.bin"
+    },
+    "val": {
+      "docs": 13654,
+      "tokens": 402704,
+      "bytes": 805408,
+      "path": "data/processed/pretrain_val.bin"
+    },
+    "test": {
+      "docs": 13668,
+      "tokens": 404848,
+      "bytes": 809696,
+      "path": "data/processed/pretrain_test.bin"
+    }
+  },
+  "total_tokens": 24907896
+}

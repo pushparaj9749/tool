@@ -1,0 +1,162 @@
+{
+  "checkpoint": "checkpoints/sft-v0.1/final.pt",
+  "probes": [
+    {
+      "id": "hi_devanagari_1",
+      "expected_lang": "hi",
+      "prompt": "भारत की राजधानी क्या है? हिंदी में उत्तर दो।",
+      "response": "नमस्कार, सिल्पा डीकने को एक विषय है।",
+      "detected_lang": "hi",
+      "script": {
+        "devanagari": 1.0,
+        "latin": 0.0
+      },
+      "language_consistent": true,
+      "chars": 36
+    },
+    {
+      "id": "hi_devanagari_2",
+      "expected_lang": "hi",
+      "prompt": "मुझे एक अच्छी किताब सुझाओ।",
+      "response": "मुझे रिल्पाटी होगा।",
+      "detected_lang": "hi",
+      "script": {
+        "devanagari": 1.0,
+        "latin": 0.0
+      },
+      "language_consistent": true,
+      "chars": 19
+    },
+    {
+      "id": "hi_devanagari_3",
+      "expected_lang": "hi",
+      "prompt": "कृपया समझाइए कि कंप्यूटर कैसे काम करता है।",
+      "response": "मुझे साउथ इंडियन रोड, इलाहाबाद में स्थित है जो आपकी किस पूर्व में सही नहीं मदद कर सकता।",
+      "detected_lang": "hi",
+      "script": {
+        "devanagari": 1.0,
+        "latin": 0.0
+      },
+      "language_consistent": true,
+      "chars": 87
+    },
+    {
+      "id": "en_1",
+      "expected_lang": "en",
+      "prompt": "What is the capital of India? Answer in English.",
+      "response": "A little, and I can be in a week.",
+      "detected_lang": "en",
+      "script": {
+        "devanagari": 0.0,
+        "latin": 1.0
+      },
+      "language_consistent": true,
+      "chars": 33
+    },
+    {
+      "id": "en_2",
+      "expected_lang": "en",
+      "prompt": "Suggest a good book for a beginner.",
+      "response": "I am not a little, and I can help.",
+      "detected_lang": "en",
+      "script": {
+        "devanagari": 0.0,
+        "latin": 1.0
+      },
+      "language_consistent": true,
+      "chars": 34
+    },
+    {
+      "id": "en_3",
+      "expected_lang": "en",
+      "prompt": "Explain how a computer works, briefly.",
+      "response": "3) 5-d/324 का एक बिलकुल, खोजने में मदद कर सकती हूँ ?",
+      "detected_lang": "hi",
+      "script": {
+        "devanagari": 0.952,
+        "latin": 0.048
+      },
+      "language_consistent": false,
+      "chars": 52
+    },
+    {
+      "id": "hinglish_1",
+      "expected_lang": "hinglish",
+      "prompt": "Bhai, mujhe ek acchi book suggest karo na.",
+      "response": "3) G-6243613326/0357, 5 /318) K. S. A 240025166) two years the last week of 2.",
+      "detected_lang": "en",
+      "script": {
+        "devanagari": 0.0,
+        "latin": 1.0
+      },
+      "language_consistent": true,
+      "chars": 78
+    },
+    {
+      "id": "hinglish_2",
+      "expected_lang": "hinglish",
+      "prompt": "Yaar, computer kaise kaam karta hai, simple mein batao.",
+      "response": "G350)      1, 5 percent of SinhiK.",
+      "detected_lang": "en",
+      "script": {
+        "devanagari": 0.0,
+        "latin": 1.0
+      },
+      "language_consistent": true,
+      "chars": 34
+    },
+    {
+      "id": "roman_hindi_1",
+      "expected_lang": "roman_hi",
+      "prompt": "Mera naam Aman hai. Mujhe padhai mein mann nahi lagta, kya karun?",
+      "response": "I am I need for you as a little number?",
+      "detected_lang": "en",
+      "script": {
+        "devanagari": 0.0,
+        "latin": 1.0
+      },
+      "language_consistent": true,
+      "chars": 39
+    }
+  ],
+  "per_language": {
+    "hi": {
+      "probes": 3,
+      "language_consistency": 1.0,
+      "mean_chars": 47.3
+    },
+    "en": {
+      "probes": 3,
+      "language_consistency": 0.667,
+      "mean_chars": 39.7
+    },
+    "hinglish": {
+      "probes": 2,
+      "language_consistency": 1.0,
+      "mean_chars": 56.0
+    },
+    "roman_hi": {
+      "probes": 1,
+      "language_consistency": 1.0,
+      "mean_chars": 39.0
+    }
+  },
+  "overall_consistency": 0.889,
+  "language_switch_probe": {
+    "turns": [
+      {
+        "user": "Hello, what is Python? Answer in English.",
+        "assistant": "1) । क्या आप कीमत में एक अच्छे है और आपको किस प्रकार सहायता कर सकती हूँ ?"
+      },
+      {
+        "user": "अब हिंदी में बताओ, Python क्या है?",
+        "assistant": "नमस्कार, नियम, इलाहाबाद में से मदद कर सकती है! कॉलोमी, फोन नंबर 053232356"
+      },
+      {
+        "user": "Ab Hinglish mein batao yaar.",
+        "assistant": "2) C. 5-8, 5 सामने दिए गए हैं। क्या मैं आपकी कुछ और मदद कर सकती हूँ ?"
+      }
+    ]
+  },
+  "note": "Consistency checks the script/language of the OUTPUT against the language of the QUESTION. It does not measure comprehension or answer correctness."
+}

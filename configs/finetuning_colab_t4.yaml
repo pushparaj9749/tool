@@ -1,0 +1,33 @@
+# Instruction tuning on the T4 (run after pretraining)
+run_name: ankit-100m-t4-sft
+init_checkpoint: checkpoints/t4-full/final.pt
+model_config: configs/model.yaml
+tokenizer_dir: tokenizer/ankit_bpe
+sft_data: data/sft/sft_train.jsonl
+sft_val_data: data/sft/sft_val.jsonl
+
+epochs: 3
+batch_size: 16
+grad_accum_steps: 1
+seq_len: 384
+learning_rate: 2.0e-4
+min_lr_ratio: 0.1
+warmup_steps: 20
+weight_decay: 0.05
+grad_clip: 1.0
+beta1: 0.9
+beta2: 0.95
+lr_schedule: cosine
+optimizer: adamw
+mask_prompt_tokens: true
+dtype: auto
+device: auto
+seed: 2024
+log_every: 10
+eval_every: 50
+eval_batches: 8
+save_every: 100
+checkpoint_dir: checkpoints/t4-sft
+log_dir: logs
+storage_min_free_gb: 2.0
+resume: auto
