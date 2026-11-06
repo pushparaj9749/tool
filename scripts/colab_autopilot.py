@@ -348,6 +348,8 @@ def stage_summary(choice: Optional[Dict[str, object]],
                   json.dumps(choice, indent=2), "```", ""]
     if pilot:
         lines += ["## Pilot verification", "", "```", json.dumps(pilot, indent=2), "```", ""]
+    if resume is not None:
+        lines += ["## Resume verification", "", "```", json.dumps(resume, indent=2), "```", ""]
 
     ckpts = []
     for meta in sorted((ROOT / "checkpoints").rglob("*.json")):
@@ -504,13 +506,23 @@ def main() -> None:
     if args.mode in ("all", "benchmark", "pilot"):
         bench = stage_benchmark(quick=args.quick_benchmark)
         choice = choose_config(bench)
+    resume: Optional[Dict[str, object]] = None
+    pilot_ok = True
     if args.mode in ("all", "pilot"):
         stage_pilot(choice, pilot_steps=args.pilot_steps)
         pilot = verify_pilot()
-        stage_resume_test(choice)
+        pilot_ok = bool(pilot["all_losses_finite"] and pilot["validation_ran"]
+                        and pilot["checkpoints"])
+        if pilot_ok:
+            resume = stage_resume_test(choice)
+        else:
+            print("[autopilot] pilot verification FAILED -> resume test and long run skipped")
         (REPORTS / "autopilot_resume_test.json").write_text(
-            json.dumps({"done": True}, indent=2) + "\n", encoding="utf-8")
-    if args.mode in ("all", "train"):
+            json.dumps(resume or {"skipped": True, "reason": "pilot verification failed"},
+                       indent=2) + "\n", encoding="utf-8")
+    if args.mode in ("all", "train") and not pilot_ok:
+        print("[autopilot] refusing to start the long run: the pilot was not verified")
+    elif args.mode in ("all", "train"):
         if choice is None:
             cfg_file = REPORTS / "autopilot_config_choice.json"
             if cfg_file.exists():
@@ -524,7 +536,7 @@ def main() -> None:
     if args.mode in ("all", "eval"):
         stage_eval()
 
-    stage_summary(choice, bench, pilot)
+    stage_summary(choice, bench, pilot, resume)
     print("\n[autopilot] done. Summary: reports/autopilot_summary.md")
 
 
