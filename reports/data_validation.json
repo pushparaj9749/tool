@@ -1,0 +1,47 @@
+{
+  "checks": {
+    "pretrain_train": {
+      "rows": 697520,
+      "schema_errors": 0
+    },
+    "pretrain_val": {
+      "rows": 13654,
+      "schema_errors": 0
+    },
+    "pretrain_test": {
+      "rows": 13668,
+      "schema_errors": 0
+    },
+    "split_leakage": {
+      "train_val": 0,
+      "train_test": 0,
+      "val_test": 0
+    },
+    "token_shards": {
+      "train": {
+        "tokens": 24100344,
+        "max_token_id": 32767
+      },
+      "val": {
+        "tokens": 402704,
+        "max_token_id": 32763
+      }
+    },
+    "sft_train.jsonl": {
+      "rows": 509,
+      "schema_errors": 0
+    },
+    "sft_val.jsonl": {
+      "rows": 34,
+      "schema_errors": 0
+    },
+    "language_distribution": {
+      "hi": 303893,
+      "mixed": 4250,
+      "en": 362602,
+      "hinglish": 54097
+    }
+  },
+  "errors": [],
+  "status": "PASS"
+}

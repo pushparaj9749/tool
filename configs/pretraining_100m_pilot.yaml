@@ -1,0 +1,38 @@
+# 100M pilot run — real training executed on this CPU-only host.
+# Purpose: prove the 100M architecture trains end-to-end (loss curve, checkpoints,
+# eval, resume) inside the available compute. This is a PILOT, not the release run.
+# The release run spec is configs/pretraining.yaml (needs a GPU).
+run_name: ankit-100m-pilot
+model_config: configs/model.yaml
+tokenizer_dir: tokenizer/ankit_bpe
+data_dir: data/processed
+train_bin: data/processed/pretrain_train.bin
+val_bin: data/processed/pretrain_val.bin
+
+batch_size: 2
+grad_accum_steps: 2
+seq_len: 256
+max_steps: 150            # 150 * 2 * 2 * 256 = 153,600 tokens
+learning_rate: 6.0e-4
+min_lr_ratio: 0.1
+warmup_steps: 20
+weight_decay: 0.1
+beta1: 0.9
+beta2: 0.95
+grad_clip: 1.0
+lr_schedule: cosine
+optimizer: adamw
+
+dtype: fp32
+device: cpu
+seed: 1337
+num_workers: 0
+log_every: 5
+eval_every: 25
+eval_batches: 8
+save_every: 25
+keep_last_checkpoints: 3
+checkpoint_dir: checkpoints/pretrain-100m
+log_dir: logs
+storage_min_free_gb: 2.0
+resume: auto

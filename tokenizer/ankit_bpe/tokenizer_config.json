@@ -1,0 +1,29 @@
+{
+  "tokenizer_type": "byte_level_bpe",
+  "vocab_size": 32768,
+  "special_tokens": [
+    "<pad>",
+    "<unk>",
+    "<bos>",
+    "<eos>",
+    "<|system|>",
+    "<|user|>",
+    "<|assistant|>",
+    "<|end|>"
+  ],
+  "special_token_ids": {
+    "<pad>": 0,
+    "<unk>": 1,
+    "<bos>": 2,
+    "<eos>": 3,
+    "<|system|>": 4,
+    "<|user|>": 5,
+    "<|assistant|>": 6,
+    "<|end|>": 7
+  },
+  "bos_token": "<bos>",
+  "eos_token": "<eos>",
+  "pad_token": "<pad>",
+  "unk_token": "<unk>",
+  "chat_template": "<bos><|system|>{system}<|end|><|user|>{user}<|end|><|assistant|>{assistant}<|end|> ... <|assistant|>"
+}

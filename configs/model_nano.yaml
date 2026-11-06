@@ -1,0 +1,19 @@
+# ANKIT LLM v0.1 — "nano" configuration.
+# Purpose: CPU-feasible pilot so that optimisation dynamics, checkpointing, resume,
+# SFT and evaluation can be validated with real (not simulated) training runs
+# inside the compute envelope of this sandbox (no GPU, 2 vCPU, ~3.8 GB RAM).
+# This is NOT the 100M model and results from it must never be presented as
+# results of the 100M model.
+name: ankit-nano
+vocab_size: 32768
+d_model: 256
+n_layers: 4
+n_heads: 4
+d_ff: 768
+max_seq_len: 256
+rope_theta: 10000.0
+rms_norm_eps: 1.0e-5
+dropout: 0.0
+tie_word_embeddings: true
+attention_bias: false
+initializer_range: 0.02

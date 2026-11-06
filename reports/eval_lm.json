@@ -1,0 +1,106 @@
+{
+  "checkpoint": "checkpoints/sft-v0.1/final.pt",
+  "checkpoint_step": 189,
+  "checkpoint_stage": "sft",
+  "params": 11798784,
+  "validation": {
+    "docs": 1500,
+    "tokens": 53994,
+    "loss": 3.7737,
+    "perplexity": 43.54,
+    "per_language": {
+      "hi": {
+        "docs": 1387,
+        "loss": 3.5917,
+        "perplexity": 36.3
+      },
+      "en": {
+        "docs": 77,
+        "loss": 6.3536,
+        "perplexity": 574.55
+      },
+      "mixed": {
+        "docs": 36,
+        "loss": 5.2669,
+        "perplexity": 193.82
+      }
+    }
+  },
+  "test": {
+    "docs": 1500,
+    "tokens": 54833,
+    "loss": 3.792,
+    "perplexity": 44.35,
+    "per_language": {
+      "hi": {
+        "docs": 1369,
+        "loss": 3.5824,
+        "perplexity": 35.96
+      },
+      "en": {
+        "docs": 91,
+        "loss": 6.3651,
+        "perplexity": 581.19
+      },
+      "mixed": {
+        "docs": 40,
+        "loss": 5.1129,
+        "perplexity": 166.15
+      }
+    }
+  },
+  "next_token_probes": [
+    {
+      "prompt": "नमस्ते, मैं",
+      "top_tokens": [
+        "आपक",
+        "मन",
+        "क",
+        "उनक",
+        ","
+      ],
+      "top_probs": [
+        0.6775,
+        0.0315,
+        0.0134,
+        0.0132,
+        0.0109
+      ]
+    },
+    {
+      "prompt": "Hello, I am",
+      "top_tokens": [
+        "not",
+        "the",
+        "a",
+        ",",
+        "I"
+      ],
+      "top_probs": [
+        0.0759,
+        0.0625,
+        0.0555,
+        0.0501,
+        0.0328
+      ]
+    },
+    {
+      "prompt": "Bhai, kal",
+      "top_tokens": [
+        ",",
+        "क",
+        "और",
+        "म",
+        "/"
+      ],
+      "top_probs": [
+        0.0872,
+        0.0209,
+        0.0178,
+        0.016,
+        0.0148
+      ]
+    }
+  ],
+  "note": "Loss/perplexity are measured on held-out data from the same corpus. A high perplexity here reflects an undertrained 100M-class model, not a broken pipeline."
+}

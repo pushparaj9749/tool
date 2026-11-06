@@ -1,0 +1,108 @@
+{
+  "project": "ANKIT LLM v0.1",
+  "generated": "2026-11-06",
+  "policy": "Only sources with a permissive or public-domain licence are used. No private conversations, no personal user data, no scraped paywalled content. No dataset is used as a benchmark-metric source without being listed here.",
+  "sources": [
+    {
+      "dataset_name": "IITB English-Hindi parallel corpus (distributed via kumardeepak/nmt-anuvada)",
+      "source_location": "https://github.com/kumardeepak/nmt-anuvada -> data/IITB.en-hi-{hi,en}.txt.zip",
+      "license": "MIT (repository licence). Upstream IITB corpus is distributed for research use; see 'usage_restrictions'.",
+      "languages": ["hi", "en"],
+      "download_date": "2026-11-06",
+      "raw_size": "96 MB zipped / 1.56M sentence pairs",
+      "processing_steps": [
+        "unzip",
+        "per-line NFKC normalisation + whitespace collapse + control-char removal",
+        "quality filter (length, alpha ratio, word count, repetition, replacement chars)",
+        "script-based language tagging",
+        "exact duplicate removal (blake2b of normalised text)",
+        "deterministic content-hash split train/val/test 98/1/1",
+        "English capped at 1.15x Hindi to avoid English skew"
+      ],
+      "usage_restrictions": "Research and non-commercial use. Derived from public web/news translations collected by IITB; individual upstream segments may carry their own terms. Do not present derived model outputs as IITB output.",
+      "used_for": "pretraining text (hi + en), tokenizer training"
+    },
+    {
+      "dataset_name": "Project Gutenberg selections (NLTK gutenberg corpus)",
+      "source_location": "https://github.com/nltk/nltk_data -> packages/corpora/gutenberg.zip",
+      "license": "Public domain books (Project Gutenberg). Compilation distributed via nltk_data.",
+      "languages": ["en"],
+      "download_date": "2026-11-06",
+      "raw_size": "4.2 MB zipped / 20 books",
+      "processing_steps": [
+        "paragraph-level record extraction",
+        "same normalisation + quality filter as above",
+        "dedupe + split"
+      ],
+      "usage_restrictions": "None beyond the Project Gutenberg header/footer terms (stripped at paragraph level).",
+      "used_for": "English narrative text for pretraining + tokenizer training"
+    },
+    {
+      "dataset_name": "Hinglish-TOP dataset (Google Research)",
+      "source_location": "https://github.com/google-research-datasets/Hinglish-TOP-Dataset -> Dataset/**/*.tsv",
+      "license": "Apache-2.0 (CC-BY-4.0 for the underlying TOP data per the repository README)",
+      "languages": ["hinglish", "en"],
+      "download_date": "2026-11-06",
+      "raw_size": "50 MB (human annotated + synthetically generated TSVs)",
+      "processing_steps": [
+        "extract the cs_query (code-switched) column only",
+        "same normalisation + quality filter",
+        "dedupe + split"
+      ],
+      "usage_restrictions": "Apache-2.0: attribution required. Underlying data is derived from TOP (task-oriented parsing) utterances.",
+      "used_for": "Hinglish pretraining text + tokenizer training"
+    },
+    {
+      "dataset_name": "HDRS Hindi dialogue corpus (Hindi Dialogue Restaurant Search)",
+      "source_location": "https://github.com/skmalviya/HDRS-Corpus -> HDRS_Corpus.zip",
+      "license": "MIT",
+      "languages": ["hi"],
+      "download_date": "2026-11-06",
+      "raw_size": "1.1 MB / 800+ Hindi dialogues",
+      "processing_steps": [
+        "convert each dialogue turn into user/assistant messages",
+        "drop dialogues with empty turns",
+        "attach a task system prompt"
+      ],
+      "usage_restrictions": "MIT: attribution required. Restaurant-search dialogues; domain-specific.",
+      "used_for": "instruction tuning (multi-turn Hindi)"
+    },
+    {
+      "dataset_name": "ANKIT authored seed conversations (project-generated)",
+      "source_location": "data/sft/seed_conversations.py (in this repository)",
+      "license": "Project licence (see LICENSE); authored by this project, not scraped",
+      "languages": ["hi", "en", "hinglish"],
+      "download_date": "2026-11-06 (authored)",
+      "raw_size": "~60 conversations x 3 personality modes",
+      "processing_steps": [
+        "hand-authored user/assistant turns",
+        "replicated per personality mode with the mode system prompt",
+        "hash split train/val"
+      ],
+      "usage_restrictions": "Authored for this project. It is a small behavioural seed set: it teaches format and tone, NOT world knowledge.",
+      "used_for": "instruction tuning (instruction following, uncertainty, clarification, three modes)"
+    }
+  ],
+  "excluded_sources": [
+    {
+      "name": "Hugging Face datasets (e.g. IndicCorp, OSCAR, Samanantar)",
+      "reason": "huggingface.co is blocked by the host network allowlist in this environment (connection returns 000). Not a licensing problem."
+    },
+    {
+      "name": "Wikimedia dumps / Project Gutenberg direct download",
+      "reason": "dumps.wikimedia.org and www.gutenberg.org are blocked by the same host allowlist."
+    },
+    {
+      "name": "KartikGarg19/Hindi-Text-Corpus, skmanish/hinglish-conv-dataset",
+      "reason": "No licence file in the repository — cannot be used."
+    },
+    {
+      "name": "Private conversations / user data",
+      "reason": "Never used. No personal data was collected for this project."
+    }
+  ],
+  "contamination_control": {
+    "method": "Evaluation probes (evaluation/*.py) are authored separately from every training source; a leakage test (data/validate_data.py) also enforces zero exact-overlap between train/val/test splits.",
+    "limitation": "No full benchmark-contamination scan was possible because no external benchmark (e.g. a Hindi MMLU-style suite) could be downloaded in this environment."
+  }
+}

@@ -1,0 +1,125 @@
+{
+  "checkpoint": "checkpoints/sft-v0.1/final.pt",
+  "mode": "adaptive",
+  "single_turn": [
+    {
+      "id": "greet_en",
+      "prompt": "Hello ANKIT, who are you?",
+      "response": "I can be your name to the way. I do not know you like, and my own name or your right?",
+      "expectation_hit": false,
+      "repetition_3gram_rate": 0.0,
+      "prompt_overlap": 0.045
+    },
+    {
+      "id": "greet_hi",
+      "prompt": "नमस्ते अंकित, तुम कौन हो?",
+      "response": "मार्ग, सिविल लॉक है और उनकी इलेक्ट्रोने का पता खुद जाता है।",
+      "expectation_hit": false,
+      "repetition_3gram_rate": 0.0,
+      "prompt_overlap": 0.25
+    },
+    {
+      "id": "instruction_list",
+      "prompt": "List three tips for better sleep.",
+      "response": "A / 2)  ।",
+      "expectation_hit": true,
+      "repetition_3gram_rate": 0.0,
+      "prompt_overlap": 0.0
+    },
+    {
+      "id": "explain",
+      "prompt": "What is machine learning? Answer in one sentence.",
+      "response": "I am I can be a little to you, and know that I have the next number.",
+      "expectation_hit": false,
+      "repetition_3gram_rate": 0.0,
+      "prompt_overlap": 0.0
+    },
+    {
+      "id": "math",
+      "prompt": "What is 15 percent of 240?",
+      "response": "4) ANP CKK353.",
+      "expectation_hit": false,
+      "repetition_3gram_rate": 0.0,
+      "prompt_overlap": 0.0
+    },
+    {
+      "id": "clarify",
+      "prompt": "Fix my code.",
+      "response": "P\" H35, G. S + 151064) CPE02500 percent of 4-11, 20387) 211224 है, लेकिन लाइन कीमत में स्थित हैं। क्या आप फ़ोन न",
+      "expectation_hit": false,
+      "repetition_3gram_rate": 0.0,
+      "prompt_overlap": 0.0
+    },
+    {
+      "id": "uncertain",
+      "prompt": "Who won the cricket match yesterday?",
+      "response": "C / 4!",
+      "expectation_hit": false,
+      "repetition_3gram_rate": 0.0,
+      "prompt_overlap": 0.0
+    },
+    {
+      "id": "hinglish",
+      "prompt": "Bhai, tokenizer kya hota hai?",
+      "response": "8) 25 minutes a new number of KC/NN =0 am not the same.",
+      "expectation_hit": false,
+      "repetition_3gram_rate": 0.0,
+      "prompt_overlap": 0.0
+    }
+  ],
+  "single_turn_expectation_rate": 0.125,
+  "multi_turn_context": [
+    {
+      "id": "name_recall",
+      "turns": [
+        {
+          "user": "My name is Rahul.",
+          "assistant": "Aा, मैं आपकी इलाहाबाद में है"
+        },
+        {
+          "user": "What is my name?",
+          "assistant": ""
+        }
+      ],
+      "expectation_hit": false
+    },
+    {
+      "id": "topic_recall_hi",
+      "turns": [
+        {
+          "user": "मुझे पाइथन सीखनी है।",
+          "assistant": "हीं मिलता है और पूर्व कीमत में है।"
+        },
+        {
+          "user": "मैंने कौन सी भाषा सीखने की बात कही थी?",
+          "assistant": "कानूनी क्या आपको बिरयाज से जैसे शहर का खुद है।"
+        }
+      ],
+      "expectation_hit": false
+    },
+    {
+      "id": "preference_recall",
+      "turns": [
+        {
+          "user": "I prefer short answers without bullet points.",
+          "assistant": "I am I can say a little."
+        },
+        {
+          "user": "Explain databases.",
+          "assistant": "I am not to my body and I can be a little-1) so it can help."
+        }
+      ],
+      "expectation_hit": false
+    }
+  ],
+  "context_expectation_rate": 0.0,
+  "contradiction_probe": {
+    "question": "What is the capital of Japan?",
+    "first_answer": "The first part of the little day.",
+    "second_answer": "P    - 133) D. S? 3 din077)",
+    "identical": false,
+    "overlap": 0.0
+  },
+  "mean_repetition_3gram_rate": 0.0,
+  "scoring_note": "'expectation_hit' is a substring heuristic over a small probe set; it measures whether a recognisable behaviour appeared, not whether the answer is correct or intelligent."
+}

@@ -1,0 +1,30 @@
+{
+  "model_name": "ankit-100m",
+  "measured_trainable_parameters": 97435392,
+  "measured_millions": 97.435,
+  "analytic_estimate": 97435392,
+  "analytic_matches_measured": true,
+  "breakdown": {
+    "blocks.mlp": 48660480,
+    "tok_emb": 25165824,
+    "blocks.attn": 23592960,
+    "blocks.attn_norm": 7680,
+    "blocks.mlp_norm": 7680,
+    "norm": 768
+  },
+  "config": {
+    "name": "ankit-100m",
+    "vocab_size": 32768,
+    "d_model": 768,
+    "n_layers": 10,
+    "n_heads": 12,
+    "d_ff": 2112,
+    "max_seq_len": 512,
+    "rope_theta": 10000.0,
+    "rms_norm_eps": 1e-05,
+    "dropout": 0.0,
+    "tie_word_embeddings": true,
+    "attention_bias": false,
+    "initializer_range": 0.02
+  }
+}

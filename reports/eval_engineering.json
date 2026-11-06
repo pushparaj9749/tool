@@ -1,0 +1,173 @@
+{
+  "checkpoint": "checkpoints/sft-v0.1/final.pt",
+  "params": 11798784,
+  "model_config": {
+    "name": "ankit-nano",
+    "vocab_size": 32768,
+    "d_model": 256,
+    "n_layers": 4,
+    "n_heads": 4,
+    "d_ff": 768,
+    "max_seq_len": 256,
+    "rope_theta": 10000.0,
+    "rms_norm_eps": 1e-05,
+    "dropout": 0.0,
+    "tie_word_embeddings": true,
+    "attention_bias": false,
+    "initializer_range": 0.02
+  },
+  "checkpoint_inventory": [
+    {
+      "tag": "step1250",
+      "path": "checkpoints/pretrain-nano/step1250.pt",
+      "step": 1250,
+      "tokens_seen": 2560000,
+      "bytes": 141639272,
+      "integrity_ok": true
+    },
+    {
+      "tag": "best-step1300",
+      "path": "checkpoints/pretrain-nano/best-step1300.pt",
+      "step": 1300,
+      "tokens_seen": 2662400,
+      "bytes": 141640195,
+      "integrity_ok": true
+    },
+    {
+      "tag": "step1300",
+      "path": "checkpoints/pretrain-nano/step1300.pt",
+      "step": 1300,
+      "tokens_seen": 2662400,
+      "bytes": 141639272,
+      "integrity_ok": true
+    },
+    {
+      "tag": "final",
+      "path": "checkpoints/pretrain-nano/final.pt",
+      "step": 1332,
+      "tokens_seen": 2727936,
+      "bytes": 141638923,
+      "integrity_ok": true
+    },
+    {
+      "tag": "step125",
+      "path": "checkpoints/pretrain-100m/step125.pt",
+      "step": 125,
+      "tokens_seen": 128000,
+      "bytes": 1169343545,
+      "integrity_ok": true
+    },
+    {
+      "tag": "best-step150",
+      "path": "checkpoints/pretrain-100m/best-step150.pt",
+      "step": 150,
+      "tokens_seen": 153600,
+      "bytes": 1169345548,
+      "integrity_ok": true
+    },
+    {
+      "tag": "final",
+      "path": "checkpoints/pretrain-100m/final.pt",
+      "step": 150,
+      "tokens_seen": 153600,
+      "bytes": 1169342923,
+      "integrity_ok": true
+    },
+    {
+      "tag": "step150",
+      "path": "checkpoints/pretrain-100m/step150.pt",
+      "step": 150,
+      "tokens_seen": 153600,
+      "bytes": 1169343545,
+      "integrity_ok": true
+    },
+    {
+      "tag": "best-step75",
+      "path": "checkpoints/sft-v0.1/best-step75.pt",
+      "step": 75,
+      "tokens_seen": 600,
+      "bytes": 141639877,
+      "integrity_ok": true
+    },
+    {
+      "tag": "best-step100",
+      "path": "checkpoints/sft-v0.1/best-step100.pt",
+      "step": 100,
+      "tokens_seen": 800,
+      "bytes": 141640036,
+      "integrity_ok": true
+    },
+    {
+      "tag": "step100",
+      "path": "checkpoints/sft-v0.1/step100.pt",
+      "step": 100,
+      "tokens_seen": 800,
+      "bytes": 141639113,
+      "integrity_ok": true
+    },
+    {
+      "tag": "best-step125",
+      "path": "checkpoints/sft-v0.1/best-step125.pt",
+      "step": 125,
+      "tokens_seen": 1000,
+      "bytes": 141640036,
+      "integrity_ok": true
+    },
+    {
+      "tag": "best-step150",
+      "path": "checkpoints/sft-v0.1/best-step150.pt",
+      "step": 150,
+      "tokens_seen": 1200,
+      "bytes": 141640036,
+      "integrity_ok": true
+    },
+    {
+      "tag": "best-step175",
+      "path": "checkpoints/sft-v0.1/best-step175.pt",
+      "step": 175,
+      "tokens_seen": 1400,
+      "bytes": 141640036,
+      "integrity_ok": true
+    },
+    {
+      "tag": "final",
+      "path": "checkpoints/sft-v0.1/final.pt",
+      "step": 189,
+      "tokens_seen": 1512,
+      "bytes": 141638923,
+      "integrity_ok": true
+    }
+  ],
+  "reload_weight_identity": true,
+  "greedy_reproducible_across_loads": true,
+  "greedy_output": "I am I can be a little, and I can be a little, and I can be a little, and I can be a little, and I can be a little, and I can be a little, and I can be a little, and I can be a little little, and I can be a little, and I can be a little, and I can be a little little, and I can be a little little, and I can be a little little, and I can be a little, and I can be a little, and I have a little little, and I have a little little, and I have a",
+  "speed": [
+    {
+      "prompt": "Explain what a database is.",
+      "max_new_tokens": 16,
+      "seconds": 0.15,
+      "chars": 50,
+      "tokens_per_second_approx": 106.72,
+      "output_preview": "I am I can be a little, and I can be a little, and"
+    },
+    {
+      "prompt": "Explain what a database is.",
+      "max_new_tokens": 64,
+      "seconds": 0.471,
+      "chars": 213,
+      "tokens_per_second_approx": 135.9,
+      "output_preview": "I am I can be a little, and I can be a little, and I can be a little, and I can be a little, and I can be a little, and "
+    }
+  ],
+  "peak_rss_mb": 787.2,
+  "torch_threads": 1,
+  "cuda_available": false,
+  "long_context": {
+    "turns": 2,
+    "dropped_turns": 19,
+    "history_tokens": 124,
+    "context_budget": 128,
+    "still_answers": true
+  },
+  "note": "Speed is CPU-only single-stream decoding with a KV cache; it is not representative of GPU inference."
+}

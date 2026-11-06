@@ -1,0 +1,271 @@
+{
+  "checkpoint": "checkpoints/sft-v0.1/final.pt",
+  "summary": {
+    "professional": {
+      "responses": 6,
+      "mean_chars": 47.7,
+      "mean_formality_ratio": 1.0,
+      "mean_formal_markers": 0.0,
+      "mean_casual_markers": 0.0
+    },
+    "friendly": {
+      "responses": 6,
+      "mean_chars": 42.5,
+      "mean_formality_ratio": 1.0,
+      "mean_formal_markers": 0.0,
+      "mean_casual_markers": 0.0
+    },
+    "adaptive": {
+      "responses": 6,
+      "mean_chars": 50.5,
+      "mean_formality_ratio": 1.0,
+      "mean_formal_markers": 0.0,
+      "mean_casual_markers": 0.0
+    }
+  },
+  "mode_separation_mean": 0.738,
+  "adaptive_language_match_rate": 0.833,
+  "raw": {
+    "en": {
+      "professional": [
+        {
+          "prompt": "Explain what a database is.",
+          "response": "I am I will be the right for a new minutes.",
+          "chars": 43,
+          "formality": {
+            "formal_markers": 0,
+            "casual_markers": 0,
+            "formality_ratio": 1.0
+          },
+          "detected_lang": "en",
+          "mode_match": null
+        },
+        {
+          "prompt": "I want to learn programming. Where should I start?",
+          "response": "I can you like to know the little, and I do not say what?",
+          "chars": 57,
+          "formality": {
+            "formal_markers": 0,
+            "casual_markers": 0,
+            "formality_ratio": 1.0
+          },
+          "detected_lang": "en",
+          "mode_match": null
+        }
+      ],
+      "friendly": [
+        {
+          "prompt": "Explain what a database is.",
+          "response": "I can be a little: I will not be the right of I can know.",
+          "chars": 57,
+          "formality": {
+            "formal_markers": 0,
+            "casual_markers": 0,
+            "formality_ratio": 1.0
+          },
+          "detected_lang": "en",
+          "mode_match": null
+        },
+        {
+          "prompt": "I want to learn programming. Where should I start?",
+          "response": "I can you to do it.",
+          "chars": 19,
+          "formality": {
+            "formal_markers": 0,
+            "casual_markers": 0,
+            "formality_ratio": 1.0
+          },
+          "detected_lang": "en",
+          "mode_match": null
+        }
+      ],
+      "adaptive": [
+        {
+          "prompt": "Explain what a database is.",
+          "response": "I can be I have a little to the right?",
+          "chars": 38,
+          "formality": {
+            "formal_markers": 0,
+            "casual_markers": 0,
+            "formality_ratio": 1.0
+          },
+          "detected_lang": "en",
+          "mode_match": true
+        },
+        {
+          "prompt": "I want to learn programming. Where should I start?",
+          "response": "I am I will not be a small-3) my name, but it was one week.",
+          "chars": 59,
+          "formality": {
+            "formal_markers": 0,
+            "casual_markers": 0,
+            "formality_ratio": 1.0
+          },
+          "detected_lang": "en",
+          "mode_match": true
+        }
+      ]
+    },
+    "hi": {
+      "professional": [
+        {
+          "prompt": "डेटाबेस क्या होता है? समझाइए।",
+          "response": "नमस्कार, सिल्पा डायलाग सिस्टम में आपकी इलाहाबाद है और पोस्ट के लिए सूची रेस्तरां हैं।",
+          "chars": 85,
+          "formality": {
+            "formal_markers": 0,
+            "casual_markers": 0,
+            "formality_ratio": 1.0
+          },
+          "detected_lang": "hi",
+          "mode_match": null
+        },
+        {
+          "prompt": "मुझे प्रोग्रामिंग सीखनी है, कहाँ से शुरू करूँ?",
+          "response": "क्या मैं आपकी और एक अच्छा चाइनेस है।",
+          "chars": 36,
+          "formality": {
+            "formal_markers": 0,
+            "casual_markers": 0,
+            "formality_ratio": 1.0
+          },
+          "detected_lang": "hi",
+          "mode_match": null
+        }
+      ],
+      "friendly": [
+        {
+          "prompt": "डेटाबेस क्या होता है? समझाइए।",
+          "response": "नमस्कार, सिल्पा डेटा दो पूर्व में एक राजस्थानी भंडारण है।",
+          "chars": 57,
+          "formality": {
+            "formal_markers": 0,
+            "casual_markers": 0,
+            "formality_ratio": 1.0
+          },
+          "detected_lang": "hi",
+          "mode_match": null
+        },
+        {
+          "prompt": "मुझे प्रोग्रामिंग सीखनी है, कहाँ से शुरू करूँ?",
+          "response": "किनारी है",
+          "chars": 9,
+          "formality": {
+            "formal_markers": 0,
+            "casual_markers": 0,
+            "formality_ratio": 1.0
+          },
+          "detected_lang": "hi",
+          "mode_match": null
+        }
+      ],
+      "adaptive": [
+        {
+          "prompt": "डेटाबेस क्या होता है? समझाइए।",
+          "response": "नमस्तिष्प, सीमा में है जो पता चाहते हैं?",
+          "chars": 40,
+          "formality": {
+            "formal_markers": 0,
+            "casual_markers": 0,
+            "formality_ratio": 1.0
+          },
+          "detected_lang": "hi",
+          "mode_match": true
+        },
+        {
+          "prompt": "मुझे प्रोग्रामिंग सीखनी है, कहाँ से शुरू करूँ?",
+          "response": "नमस्कार, सिल्पा डायलाग पूर्व में है जो कुछ और एक और नीत नहीं है।",
+          "chars": 64,
+          "formality": {
+            "formal_markers": 0,
+            "casual_markers": 0,
+            "formality_ratio": 1.0
+          },
+          "detected_lang": "hi",
+          "mode_match": true
+        }
+      ]
+    },
+    "hinglish": {
+      "professional": [
+        {
+          "prompt": "Database kya hota hai? Batao na.",
+          "response": "3) 25256े हैं।",
+          "chars": 14,
+          "formality": {
+            "formal_markers": 0,
+            "casual_markers": 0,
+            "formality_ratio": 1.0
+          },
+          "detected_lang": "hi",
+          "mode_match": null
+        },
+        {
+          "prompt": "Mujhe programming seekhni hai, kahan se shuru karun?",
+          "response": "3 din ek 2 am aur 3 minute ka timer ko ek week hai.",
+          "chars": 51,
+          "formality": {
+            "formal_markers": 0,
+            "casual_markers": 0,
+            "formality_ratio": 1.0
+          },
+          "detected_lang": "hinglish",
+          "mode_match": null
+        }
+      ],
+      "friendly": [
+        {
+          "prompt": "Database kya hota hai? Batao na.",
+          "response": "K) I can have been a little as you say, and do not have no small time.",
+          "chars": 70,
+          "formality": {
+            "formal_markers": 0,
+            "casual_markers": 0,
+            "formality_ratio": 1.0
+          },
+          "detected_lang": "en",
+          "mode_match": null
+        },
+        {
+          "prompt": "Mujhe programming seekhni hai, kahan se shuru karun?",
+          "response": "136)328 1 minute ke liye ek din ka kam hai.",
+          "chars": 43,
+          "formality": {
+            "formal_markers": 0,
+            "casual_markers": 0,
+            "formality_ratio": 1.0
+          },
+          "detected_lang": "en",
+          "mode_match": null
+        }
+      ],
+      "adaptive": [
+        {
+          "prompt": "Database kya hota hai? Batao na.",
+          "response": "1)",
+          "chars": 2,
+          "formality": {
+            "formal_markers": 0,
+            "casual_markers": 0,
+            "formality_ratio": 1.0
+          },
+          "detected_lang": "none",
+          "mode_match": false
+        },
+        {
+          "prompt": "Mujhe programming seekhni hai, kahan se shuru karun?",
+          "response": "3 din ek ghante ka liye ek timer cancel karo, 4) 5 am ke liye har din pehle ek minute se ek din hai.",
+          "chars": 100,
+          "formality": {
+            "formal_markers": 0,
+            "casual_markers": 0,
+            "formality_ratio": 1.0
+          },
+          "detected_lang": "hinglish",
+          "mode_match": true
+        }
+      ]
+    }
+  },
+  "note": "Mode separation is a lexical-difference proxy. A trained model should show clear separation; an undertrained model typically shows little, and that is reported as-is."
+}

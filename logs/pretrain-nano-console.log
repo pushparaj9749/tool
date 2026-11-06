@@ -1,0 +1,162 @@
+[pretrain] params=11,798,784 (11.80M) device=cpu dtype=torch.float32 train_tokens=24,100,344 val_tokens=402,704
+step      1 loss=1.0453 lr=1.00e-05 gnorm=6.95 tok/s= 1057.3 eta=  64.5m
+step     10 loss=9.1735 lr=1.00e-04 gnorm=3.04 tok/s= 1184.0 eta=  57.4m
+step     20 loss=9.6716 lr=2.00e-04 gnorm=1.67 tok/s= 1301.7 eta=  51.9m
+step     30 loss=9.0282 lr=3.00e-04 gnorm=2.14 tok/s= 1300.8 eta=  51.7m
+step     40 loss=8.1449 lr=4.00e-04 gnorm=2.51 tok/s= 1281.4 eta=  52.2m
+step     50 loss=7.1083 lr=5.00e-04 gnorm=1.83 tok/s= 1266.2 eta=  52.6m
+  [eval] step 50 val_loss=7.3494 val_ppl=1555.21 best=7.3494
+step     60 loss=6.1086 lr=6.00e-04 gnorm=1.15 tok/s= 1148.2 eta=  57.7m
+step     70 loss=5.8237 lr=7.00e-04 gnorm=1.47 tok/s= 1178.7 eta=  55.9m
+step     80 loss=5.3819 lr=8.00e-04 gnorm=0.89 tok/s= 1194.1 eta=  54.9m
+step     90 loss=5.3515 lr=9.00e-04 gnorm=1.44 tok/s= 1198.5 eta=  54.4m
+step    100 loss=5.1504 lr=1.00e-03 gnorm=1.24 tok/s= 1105.2 eta=  58.7m
+  [eval] step 100 val_loss=6.1592 val_ppl=473.04 best=6.1592
+step    110 loss=5.4813 lr=1.00e-03 gnorm=1.32 tok/s= 1047.7 eta=  61.6m
+step    120 loss=4.9985 lr=1.00e-03 gnorm=0.88 tok/s= 1041.8 eta=  61.6m
+step    130 loss=4.8692 lr=9.99e-04 gnorm=1.16 tok/s= 1056.8 eta=  60.4m
+step    140 loss=5.0172 lr=9.99e-04 gnorm=2.59 tok/s= 1065.8 eta=  59.6m
+step    150 loss=4.7866 lr=9.99e-04 gnorm=1.06 tok/s= 1074.4 eta=  58.8m
+  [eval] step 150 val_loss=5.9156 val_ppl=370.78 best=5.9156
+step    160 loss=4.6745 lr=9.98e-04 gnorm=1.40 tok/s= 1034.6 eta=  60.7m
+step    170 loss=5.1006 lr=9.97e-04 gnorm=1.37 tok/s= 1045.7 eta=  59.7m
+step    180 loss=4.8373 lr=9.96e-04 gnorm=1.06 tok/s= 1054.9 eta=  58.9m
+step    190 loss=4.6677 lr=9.95e-04 gnorm=0.84 tok/s= 1062.5 eta=  58.1m
+step    200 loss=4.3770 lr=9.94e-04 gnorm=1.24 tok/s= 1068.5 eta=  57.5m
+  [eval] step 200 val_loss=5.7192 val_ppl=304.66 best=5.7192
+step    210 loss=4.8098 lr=9.93e-04 gnorm=1.25 tok/s= 1044.7 eta=  58.5m
+step    220 loss=4.2228 lr=9.91e-04 gnorm=1.07 tok/s= 1050.6 eta=  57.8m
+step    230 loss=4.8088 lr=9.90e-04 gnorm=0.96 tok/s= 1056.1 eta=  57.2m
+step    240 loss=4.2478 lr=9.88e-04 gnorm=1.14 tok/s= 1062.0 eta=  56.6m
+step    250 loss=4.4385 lr=9.86e-04 gnorm=1.19 tok/s= 1065.6 eta=  56.1m
+  [eval] step 250 val_loss=5.5917 val_ppl=268.19 best=5.5917
+step    260 loss=4.4590 lr=9.85e-04 gnorm=1.15 tok/s= 1043.6 eta=  56.9m
+step    270 loss=4.3553 lr=9.83e-04 gnorm=1.05 tok/s= 1048.7 eta=  56.3m
+step    280 loss=4.4630 lr=9.80e-04 gnorm=0.98 tok/s= 1051.3 eta=  55.8m
+step    290 loss=4.4888 lr=9.78e-04 gnorm=1.11 tok/s= 1056.3 eta=  55.3m
+step    300 loss=4.5088 lr=9.76e-04 gnorm=1.05 tok/s= 1058.3 eta=  54.8m
+  [eval] step 300 val_loss=5.4743 val_ppl=238.49 best=5.4743
+step    310 loss=4.1599 lr=9.73e-04 gnorm=1.09 tok/s= 1038.3 eta=  55.6m
+step    320 loss=4.3326 lr=9.71e-04 gnorm=1.13 tok/s= 1041.7 eta=  55.1m
+step    330 loss=4.4485 lr=9.68e-04 gnorm=0.97 tok/s= 1045.5 eta=  54.5m
+step    340 loss=4.3019 lr=9.65e-04 gnorm=1.10 tok/s= 1049.4 eta=  54.0m
+step    350 loss=4.4915 lr=9.62e-04 gnorm=1.05 tok/s= 1053.5 eta=  53.5m
+  [eval] step 350 val_loss=5.3829 val_ppl=217.65 best=5.3829
+step    360 loss=4.3997 lr=9.59e-04 gnorm=0.96 tok/s= 1036.3 eta=  54.0m
+step    370 loss=4.3844 lr=9.56e-04 gnorm=2.17 tok/s= 1039.1 eta=  53.5m
+step    380 loss=4.3014 lr=9.53e-04 gnorm=1.24 tok/s= 1042.4 eta=  53.0m
+step    390 loss=4.4251 lr=9.50e-04 gnorm=1.11 tok/s= 1045.2 eta=  52.6m
+step    400 loss=4.1092 lr=9.46e-04 gnorm=1.08 tok/s= 1048.8 eta=  52.1m
+  [eval] step 400 val_loss=5.3262 val_ppl=205.65 best=5.3262
+step    410 loss=3.9769 lr=9.43e-04 gnorm=1.16 tok/s= 1034.6 eta=  52.5m
+step    420 loss=4.2717 lr=9.39e-04 gnorm=1.15 tok/s= 1036.5 eta=  52.0m
+step    430 loss=4.3999 lr=9.35e-04 gnorm=0.95 tok/s= 1038.4 eta=  51.6m
+step    440 loss=4.4706 lr=9.31e-04 gnorm=1.02 tok/s= 1040.8 eta=  51.2m
+step    450 loss=4.0178 lr=9.27e-04 gnorm=0.94 tok/s= 1043.1 eta=  50.7m
+  [eval] step 450 val_loss=5.2659 val_ppl=193.62 best=5.2659
+step    460 loss=4.1929 lr=9.23e-04 gnorm=0.97 tok/s= 1030.0 eta=  51.0m
+step    470 loss=3.8382 lr=9.19e-04 gnorm=1.11 tok/s= 1032.2 eta=  50.6m
+step    480 loss=4.4012 lr=9.14e-04 gnorm=1.04 tok/s= 1034.3 eta=  50.2m
+step    490 loss=4.1703 lr=9.10e-04 gnorm=1.16 tok/s= 1036.6 eta=  49.7m
+step    500 loss=4.0910 lr=9.06e-04 gnorm=1.09 tok/s= 1039.5 eta=  49.3m
+  [eval] step 500 val_loss=5.2173 val_ppl=184.44 best=5.2173
+step    510 loss=4.1171 lr=9.01e-04 gnorm=1.10 tok/s= 1030.4 eta=  49.4m
+step    520 loss=4.0850 lr=8.96e-04 gnorm=0.91 tok/s= 1032.4 eta=  48.9m
+step    530 loss=4.1079 lr=8.91e-04 gnorm=0.86 tok/s= 1034.8 eta=  48.5m
+step    540 loss=3.9743 lr=8.87e-04 gnorm=1.08 tok/s= 1036.6 eta=  48.1m
+step    550 loss=4.0868 lr=8.82e-04 gnorm=0.88 tok/s= 1039.1 eta=  47.6m
+  [eval] step 550 val_loss=5.1570 val_ppl=173.64 best=5.1570
+step    560 loss=4.0523 lr=8.77e-04 gnorm=1.17 tok/s= 1029.3 eta=  47.8m
+step    570 loss=4.0415 lr=8.71e-04 gnorm=1.06 tok/s= 1032.7 eta=  47.3m
+step    580 loss=4.2187 lr=8.66e-04 gnorm=1.10 tok/s= 1038.1 eta=  46.7m
+step    590 loss=3.9004 lr=8.61e-04 gnorm=1.00 tok/s= 1040.4 eta=  46.3m
+step    600 loss=4.0594 lr=8.55e-04 gnorm=1.00 tok/s= 1042.4 eta=  45.8m
+  [eval] step 600 val_loss=5.1318 val_ppl=169.32 best=5.1318
+step    610 loss=3.7230 lr=8.50e-04 gnorm=0.95 tok/s= 1036.5 eta=  45.8m
+step    620 loss=4.5248 lr=8.44e-04 gnorm=1.12 tok/s= 1039.2 eta=  45.3m
+step    630 loss=4.0727 lr=8.39e-04 gnorm=0.97 tok/s= 1043.5 eta=  44.8m
+step    640 loss=3.9180 lr=8.33e-04 gnorm=1.05 tok/s= 1046.2 eta=  44.4m
+step    650 loss=3.9448 lr=8.27e-04 gnorm=1.24 tok/s= 1049.3 eta=  43.9m
+  [eval] step 650 val_loss=5.0951 val_ppl=163.23 best=5.0951
+step    660 loss=4.1680 lr=8.21e-04 gnorm=1.10 tok/s= 1044.9 eta=  43.8m
+step    670 loss=3.9588 lr=8.15e-04 gnorm=1.09 tok/s= 1046.9 eta=  43.4m
+step    680 loss=3.8895 lr=8.09e-04 gnorm=0.98 tok/s= 1049.0 eta=  43.0m
+step    690 loss=4.0395 lr=8.03e-04 gnorm=1.06 tok/s= 1051.7 eta=  42.5m
+step    700 loss=4.3701 lr=7.97e-04 gnorm=0.86 tok/s= 1055.2 eta=  42.1m
+  [eval] step 700 val_loss=5.0397 val_ppl=154.42 best=5.0397
+step    710 loss=3.9811 lr=7.90e-04 gnorm=1.10 tok/s= 1048.7 eta=  42.0m
+step    720 loss=4.2776 lr=7.84e-04 gnorm=1.06 tok/s= 1050.8 eta=  41.6m
+step    730 loss=3.9711 lr=7.78e-04 gnorm=0.91 tok/s= 1052.7 eta=  41.2m
+step    740 loss=3.9943 lr=7.71e-04 gnorm=0.95 tok/s= 1054.5 eta=  40.8m
+step    750 loss=3.8532 lr=7.65e-04 gnorm=0.92 tok/s= 1056.3 eta=  40.4m
+  [eval] step 750 val_loss=5.0250 val_ppl=152.17 best=5.0250
+step    760 loss=4.0526 lr=7.58e-04 gnorm=1.29 tok/s= 1049.0 eta=  40.3m
+step    770 loss=4.0535 lr=7.52e-04 gnorm=0.98 tok/s= 1049.9 eta=  40.0m
+step    780 loss=3.9630 lr=7.45e-04 gnorm=1.08 tok/s= 1051.7 eta=  39.6m
+step    790 loss=3.9586 lr=7.38e-04 gnorm=1.07 tok/s= 1053.0 eta=  39.2m
+step    800 loss=3.7039 lr=7.31e-04 gnorm=0.92 tok/s= 1054.6 eta=  38.8m
+  [eval] step 800 val_loss=5.0025 val_ppl=148.78 best=5.0025
+step    810 loss=4.2924 lr=7.25e-04 gnorm=1.06 tok/s= 1047.7 eta=  38.8m
+step    820 loss=3.7962 lr=7.18e-04 gnorm=1.00 tok/s= 1049.1 eta=  38.4m
+step    830 loss=4.1594 lr=7.11e-04 gnorm=1.02 tok/s= 1051.2 eta=  38.0m
+step    840 loss=4.0028 lr=7.04e-04 gnorm=1.00 tok/s= 1052.4 eta=  37.6m
+step    850 loss=4.1225 lr=6.97e-04 gnorm=0.98 tok/s= 1053.6 eta=  37.3m
+  [eval] step 850 val_loss=4.9588 val_ppl=142.42 best=4.9588
+step    860 loss=4.0244 lr=6.90e-04 gnorm=1.05 tok/s= 1048.3 eta=  37.1m
+step    870 loss=4.1882 lr=6.83e-04 gnorm=0.98 tok/s= 1050.3 eta=  36.7m
+step    880 loss=3.8439 lr=6.76e-04 gnorm=0.93 tok/s= 1053.0 eta=  36.3m
+step    890 loss=3.6584 lr=6.68e-04 gnorm=0.96 tok/s= 1055.4 eta=  35.9m
+step    900 loss=4.0444 lr=6.61e-04 gnorm=1.01 tok/s= 1056.9 eta=  35.5m
+  [eval] step 900 val_loss=4.9382 val_ppl=139.52 best=4.9382
+step    910 loss=3.8877 lr=6.54e-04 gnorm=0.91 tok/s= 1053.5 eta=  35.3m
+step    920 loss=3.5883 lr=6.47e-04 gnorm=0.99 tok/s= 1056.6 eta=  34.9m
+step    930 loss=3.8401 lr=6.39e-04 gnorm=0.94 tok/s= 1059.0 eta=  34.5m
+step    940 loss=3.8311 lr=6.32e-04 gnorm=0.97 tok/s= 1060.6 eta=  34.1m
+step    950 loss=3.9375 lr=6.25e-04 gnorm=0.95 tok/s= 1062.5 eta=  33.7m
+  [eval] step 950 val_loss=4.9156 val_ppl=136.40 best=4.9156
+step    960 loss=3.5253 lr=6.17e-04 gnorm=0.97 tok/s= 1058.3 eta=  33.5m
+step    970 loss=3.9258 lr=6.10e-04 gnorm=0.89 tok/s= 1061.9 eta=  33.1m
+step    980 loss=3.8936 lr=6.03e-04 gnorm=1.20 tok/s= 1065.4 eta=  32.7m
+step    990 loss=3.9454 lr=5.95e-04 gnorm=1.06 tok/s= 1069.1 eta=  32.2m
+step   1000 loss=3.6266 lr=5.88e-04 gnorm=1.11 tok/s= 1071.7 eta=  31.9m
+  [eval] step 1000 val_loss=4.8783 val_ppl=131.41 best=4.8783
+step   1010 loss=3.8166 lr=5.80e-04 gnorm=0.99 tok/s= 1069.6 eta=  31.6m
+step   1020 loss=3.8769 lr=5.73e-04 gnorm=1.15 tok/s= 1072.2 eta=  31.2m
+step   1030 loss=3.9548 lr=5.66e-04 gnorm=1.08 tok/s= 1075.2 eta=  30.8m
+step   1040 loss=3.9009 lr=5.58e-04 gnorm=1.00 tok/s= 1077.7 eta=  30.4m
+step   1050 loss=3.8586 lr=5.51e-04 gnorm=1.00 tok/s= 1080.3 eta=  30.0m
+  [eval] step 1050 val_loss=4.8563 val_ppl=128.55 best=4.8563
+step   1060 loss=4.2214 lr=5.43e-04 gnorm=1.00 tok/s= 1078.6 eta=  29.7m
+step   1070 loss=3.7478 lr=5.36e-04 gnorm=1.05 tok/s= 1082.0 eta=  29.3m
+step   1080 loss=3.6007 lr=5.28e-04 gnorm=0.90 tok/s= 1085.3 eta=  28.9m
+step   1090 loss=3.6256 lr=5.21e-04 gnorm=0.96 tok/s= 1088.6 eta=  28.5m
+step   1100 loss=3.9822 lr=5.14e-04 gnorm=1.03 tok/s= 1092.2 eta=  28.1m
+  [eval] step 1100 val_loss=4.8457 val_ppl=127.20 best=4.8457
+step   1110 loss=3.8207 lr=5.06e-04 gnorm=0.89 tok/s= 1090.9 eta=  27.8m
+step   1120 loss=3.7152 lr=4.99e-04 gnorm=0.97 tok/s= 1094.1 eta=  27.5m
+step   1130 loss=3.9914 lr=4.91e-04 gnorm=0.95 tok/s= 1096.9 eta=  27.1m
+step   1140 loss=3.9029 lr=4.84e-04 gnorm=1.06 tok/s= 1100.4 eta=  26.7m
+step   1150 loss=3.6664 lr=4.77e-04 gnorm=0.99 tok/s= 1103.4 eta=  26.3m
+  [eval] step 1150 val_loss=4.8275 val_ppl=124.90 best=4.8275
+step   1160 loss=3.8843 lr=4.69e-04 gnorm=0.91 tok/s= 1100.6 eta=  26.1m
+step   1170 loss=3.7273 lr=4.62e-04 gnorm=1.12 tok/s= 1103.6 eta=  25.7m
+step   1180 loss=3.4566 lr=4.55e-04 gnorm=0.90 tok/s= 1106.4 eta=  25.3m
+step   1190 loss=3.7277 lr=4.47e-04 gnorm=1.11 tok/s= 1108.9 eta=  24.9m
+step   1200 loss=4.0726 lr=4.40e-04 gnorm=1.03 tok/s= 1111.9 eta=  24.6m
+  [eval] step 1200 val_loss=4.8066 val_ppl=122.32 best=4.8066
+step   1210 loss=4.0974 lr=4.33e-04 gnorm=0.94 tok/s= 1110.0 eta=  24.3m
+step   1220 loss=3.8169 lr=4.26e-04 gnorm=1.06 tok/s= 1112.9 eta=  23.9m
+step   1230 loss=3.6750 lr=4.19e-04 gnorm=1.01 tok/s= 1115.8 eta=  23.6m
+step   1240 loss=3.4404 lr=4.12e-04 gnorm=1.09 tok/s= 1118.4 eta=  23.2m
+step   1250 loss=3.5349 lr=4.05e-04 gnorm=1.10 tok/s= 1121.4 eta=  22.8m
+  [eval] step 1250 val_loss=4.7921 val_ppl=120.56 best=4.7921
+step   1260 loss=3.5276 lr=3.98e-04 gnorm=0.90 tok/s= 1119.5 eta=  22.6m
+step   1270 loss=4.1045 lr=3.91e-04 gnorm=0.99 tok/s= 1122.3 eta=  22.2m
+step   1280 loss=3.6548 lr=3.84e-04 gnorm=0.92 tok/s= 1125.3 eta=  21.8m
+step   1290 loss=3.8154 lr=3.77e-04 gnorm=1.09 tok/s= 1128.5 eta=  21.5m
+step   1300 loss=4.2625 lr=3.70e-04 gnorm=0.99 tok/s= 1131.7 eta=  21.1m
+  [eval] step 1300 val_loss=4.7776 val_ppl=118.82 best=4.7776
+step   1310 loss=3.7335 lr=3.63e-04 gnorm=1.09 tok/s= 1130.7 eta=  20.8m
+step   1320 loss=3.8431 lr=3.56e-04 gnorm=1.03 tok/s= 1133.5 eta=  20.5m
+step   1330 loss=3.7122 lr=3.50e-04 gnorm=1.04 tok/s= 1135.8 eta=  20.1m
+[pretrain] done: step=1332 tokens=2,727,936 val_loss=4.7633 stop=time_budget -> checkpoints/pretrain-nano/final.pt

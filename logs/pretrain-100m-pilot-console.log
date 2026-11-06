@@ -1,0 +1,25 @@
+[pretrain] params=97,435,392 (97.44M) device=cpu dtype=torch.float32 train_tokens=24,100,344 val_tokens=402,704
+step      1 loss=2.1158 lr=3.00e-05 gnorm=33.65 tok/s=  210.3 eta=  12.1m
+step      5 loss=7.9070 lr=1.50e-04 gnorm=15.61 tok/s=  186.1 eta=  13.3m
+step     10 loss=8.1953 lr=3.00e-04 gnorm=4.59 tok/s=  196.5 eta=  12.2m
+step     15 loss=7.8293 lr=4.50e-04 gnorm=10.64 tok/s=  195.9 eta=  11.8m
+step     20 loss=6.8304 lr=6.00e-04 gnorm=1.45 tok/s=  196.8 eta=  11.3m
+step     25 loss=5.8454 lr=5.99e-04 gnorm=2.28 tok/s=  201.0 eta=  10.6m
+  [eval] step 25 val_loss=7.3403 val_ppl=1541.18 best=7.3403
+step     30 loss=7.1935 lr=5.94e-04 gnorm=2.01 tok/s=  185.3 eta=  11.1m
+step     35 loss=5.4209 lr=5.85e-04 gnorm=2.10 tok/s=  188.6 eta=  10.4m
+step     40 loss=5.6688 lr=5.72e-04 gnorm=2.17 tok/s=  189.8 eta=   9.9m
+step     45 loss=5.5548 lr=5.56e-04 gnorm=1.91 tok/s=  190.2 eta=   9.4m
+step     50 loss=5.1065 lr=5.36e-04 gnorm=1.29 tok/s=  191.3 eta=   8.9m
+  [eval] step 50 val_loss=7.1705 val_ppl=1300.44 best=7.1705
+[pretrain] crashed at step 50: unsupported operand type(s) for /: 'str' and 'str' -> checkpoint checkpoints/pretrain-100m/crashed.pt
+Traceback (most recent call last):
+  File "/home/user/tool/training/pretrain.py", line 262, in <module>
+    main()
+  File "/home/user/tool/training/pretrain.py", line 220, in main
+    pruned = prune_checkpoints(cfg["checkpoint_dir"], cfg["keep_last_checkpoints"])
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/user/tool/training/checkpoint.py", line 118, in prune_checkpoints
+    order = ckpt_dir / "latest.json"
+            ~~~~~~~~~^~~~~~~~~~~~~~~
+TypeError: unsupported operand type(s) for /: 'str' and 'str'
