@@ -50,6 +50,7 @@ def save_checkpoint(
     extra: Optional[Dict[str, Any]] = None,
     scaler: Optional[Any] = None,
     mirror_dir: Optional[str | Path] = None,
+    mirror: Optional[Any] = None,
 ) -> Path:
     ckpt_dir = Path(ckpt_dir)
     ckpt_dir.mkdir(parents=True, exist_ok=True)
@@ -88,8 +89,11 @@ def save_checkpoint(
     (ckpt_dir / "latest.json").write_text(
         json.dumps({"tag": tag, **sidecar}, indent=2) + "\n", encoding="utf-8"
     )
-    if mirror_dir:
-        mirror_checkpoint(final, ckpt_dir / f"{tag}.json", mirror_dir)
+    if mirror is not None and hasattr(mirror, "submit"):
+        # async: hands the file to a background thread, returns immediately
+        mirror.submit(final, ckpt_dir / f"{tag}.json", step=step)
+    elif mirror_dir:
+        mirror_checkpoint(final, ckpt_dir / f"{tag}.json", mirror_dir, step=step)
     return final
 
 
@@ -136,20 +140,27 @@ def move_optimizer_state_to(optimizer: torch.optim.Optimizer, device: torch.devi
     return moved
 
 
-def _prune_mirror(mirror: Path, keep: int = 3) -> None:
+def _prune_mirror(mirror: Path, keep: int = 3, protected: Optional[str] = None) -> None:
     """Keep the newest N mirrored .pt files (Drive fills up fast at 1.1 GB each)."""
     files = sorted(mirror.glob("*.pt"), key=lambda p: p.stat().st_mtime)
     for old in files[:-keep] if keep > 0 else []:
+        if protected and old.name == protected:
+            continue
         for path in (old, old.with_suffix(".json")):
             if path.exists():
                 path.unlink()
 
 
-def mirror_checkpoint(ckpt_file: Path, sidecar_file: Path, mirror_dir: str | Path) -> Optional[Path]:
+def mirror_checkpoint(ckpt_file: Path, sidecar_file: Path, mirror_dir: str | Path,
+                      step: Optional[int] = None) -> Optional[Path]:
     """Copy a checkpoint to persistent storage (e.g. mounted Google Drive).
+
+    Synchronous; `training.mirror.BackgroundMirror` is the preferred path because a
+    Drive copy can take minutes and must not block the GPU loop.
 
     Written to a .partial name first, then renamed, so a Colab disconnect during
     the copy can never leave a truncated file masquerading as the latest checkpoint.
+    The mirror's `latest.json` is written last, so a new session can trust it.
     """
     try:
         mirror = Path(mirror_dir)
@@ -159,7 +170,15 @@ def mirror_checkpoint(ckpt_file: Path, sidecar_file: Path, mirror_dir: str | Pat
         shutil.copyfile(ckpt_file, tmp)
         shutil.copyfile(sidecar_file, mirror / sidecar_file.name)
         os.replace(tmp, dest)
-        _prune_mirror(mirror, keep=3)
+        pointer = mirror / "latest.json"
+        pointer.write_text(json.dumps({
+            "tag": ckpt_file.stem,
+            "file": dest.name,
+            "step": step if step is not None else ckpt_file.stem,
+            "bytes": dest.stat().st_size,
+            "mirrored_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        }, indent=2) + "\n", encoding="utf-8")
+        _prune_mirror(mirror, keep=3, protected=dest.name)
         return dest
     except OSError as exc:                     # Drive hiccups must not kill training
         print(f"[checkpoint] WARNING mirror to {mirror_dir} failed: {exc}")

@@ -57,6 +57,7 @@ VRAM_BUDGET_FRACTION = 0.80      # of the card's total VRAM
 VRAM_SAFETY_FACTOR = 1.35        # measured peak x this must still fit the budget
 NEAR_BEST_TOLERANCE = 0.05       # within 5% of the best tok/s -> prefer longer context
 MAX_PILOT_ATTEMPTS = 4           # OOM self-healing: bs/2, seq/2, ... then give up
+MAX_SESSION_SEC = 28800          # 8 h hard cap for one long run (Colab ceiling ~12 h)
 VRAM_HEADROOM_GB = 13.0          # kept for the fallback path / old reports
 
 
@@ -218,9 +219,34 @@ def choose_config(bench: Dict[str, object]) -> Dict[str, object]:
     }
     print(json.dumps(decision, indent=2))
     REPORTS.mkdir(exist_ok=True)
-    (REPORTS / "autopilot_config_choice.json").write_text(
-        json.dumps(decision, indent=2) + "\n", encoding="utf-8")
+    text = json.dumps(decision, indent=2) + "\n"
+    (REPORTS / "autopilot_config_choice.json").write_text(text, encoding="utf-8")
+    # keep a copy on Drive: a fresh Colab VM has none, and re-benchmarking 54 cells
+    # on every session start is session time the user is paying for
+    drive = drive_dir()
+    if drive is not None:
+        try:
+            (drive / "reports").mkdir(parents=True, exist_ok=True)
+            (drive / "reports" / "autopilot_config_choice.json").write_text(text, encoding="utf-8")
+        except OSError as exc:
+            print(f"[autopilot] could not copy the config choice to Drive: {exc}")
     return decision
+
+
+def load_choice() -> Optional[Dict[str, object]]:
+    """The measured config from an earlier session (local first, then Drive)."""
+    local = REPORTS / "autopilot_config_choice.json"
+    candidates = [local]
+    drive = drive_dir()
+    if drive is not None:
+        candidates.append(drive / "reports" / "autopilot_config_choice.json")
+    for path in candidates:
+        if path.exists():
+            try:
+                return json.loads(path.read_text(encoding="utf-8"))
+            except ValueError:
+                continue
+    return None
 
 
 def _generate_config(src: str, dst: str, choice: Dict[str, object],
@@ -315,11 +341,22 @@ def verify_pilot(cfg_rel: str = "configs/_autogen_pilot.yaml") -> Dict[str, obje
     finite = all(isinstance(v, (int, float)) and v == v and abs(v) < 1e6 for v in losses)
     first = losses[0] if losses else None
     last = losses[-1] if losses else None
+    # A single step-1 loss is a coin flip (the very first pilot logged 1.0564 before
+    # settling around 9.5), so compare medians of the first and last tenth instead of
+    # two individual steps.
+    def _med(xs: List[float]) -> Optional[float]:
+        import statistics
+        return float(statistics.median(xs)) if xs else None
+    k = max(1, len(losses) // 10)
+    head_med, tail_med = _med(losses[:k]), _med(losses[-k:])
+    improved = (head_med is not None and tail_med is not None and tail_med < head_med)
     result = {
         "logged_steps": len(losses),
         "first_loss": first,
         "last_loss": last,
-        "loss_improved": (first is not None and last is not None and last < first),
+        "first10pct_median_loss": head_med,
+        "last10pct_median_loss": tail_med,
+        "loss_improved": improved,
         "all_losses_finite": bool(losses) and finite,
         "validation_ran": bool(evals),
         "val_loss": evals[-1].get("val_loss") if evals else None,
@@ -353,12 +390,84 @@ def stage_resume_test(choice: Dict[str, object], extra_steps: int = 20) -> Dict[
     return result
 
 
+def stage_restore(ckpt_dir: str = "checkpoints/t4-full") -> Optional[str]:
+    """Copy the newest complete checkpoint from Drive into this VM's local disk.
+
+    A stopped/disconnected Colab runtime loses everything on /content. The only
+    durable copy is the one on Drive, so every entry point that trains restores
+    first - and never silently restarts from step 0 while a checkpoint exists.
+    """
+    note("0/8 restore newest checkpoint from Drive")
+    drive = drive_dir()
+    local = ROOT / ckpt_dir
+    if drive is None:
+        print("[autopilot] Drive is not mounted — nothing to restore from")
+        return None
+    mirror = drive / "checkpoints" / Path(ckpt_dir).name
+    if not mirror.exists():
+        print(f"[autopilot] no mirror at {mirror} — first run for this checkpoint dir")
+        return None
+
+    sys.path.insert(0, str(ROOT))
+    from training.mirror import newest_mirrored_checkpoint, restore_from_mirror
+
+    remote = newest_mirrored_checkpoint(mirror)
+    if remote is None:
+        print(f"[autopilot] {mirror} has no complete checkpoint yet")
+        return None
+
+    remote_step = _sidecar_step(remote)
+    local_step, local_path = -1, None
+    if local.exists():
+        for sidecar in local.glob("*.json"):
+            if sidecar.name == "latest.json":
+                continue
+            try:
+                meta = json.loads(sidecar.read_text(encoding="utf-8"))
+            except ValueError:
+                continue
+            if int(meta.get("step", -1)) > local_step and sidecar.with_suffix(".pt").exists():
+                local_step, local_path = int(meta.get("step", -1)), sidecar.with_suffix(".pt")
+
+    if local_path is not None and local_step >= remote_step:
+        print(f"[autopilot] local checkpoint step {local_step} >= Drive step {remote_step}"
+              " — keeping the local one")
+        return str(local_path)
+
+    print(f"[autopilot] restoring {remote.name} (step {remote_step}) from Drive "
+          f"({remote.stat().st_size/1e9:.2f} GB) — this takes a few minutes on a "
+          "fresh VM")
+    dest = restore_from_mirror(mirror, local)
+    if dest is None:
+        print("[autopilot] restore produced nothing")
+        return None
+    print(f"[autopilot] restored -> {dest}")
+    return str(dest)
+
+
+def _sidecar_step(ckpt: Path) -> int:
+    sidecar = Path(ckpt).with_suffix(".json")
+    if sidecar.exists():
+        try:
+            return int(json.loads(sidecar.read_text(encoding="utf-8")).get("step", -1))
+        except (ValueError, TypeError):
+            pass
+    return -1
+
+
 def stage_train(choice: Dict[str, object], session_budget_min: int, steps: Optional[int]) -> None:
     note("6/8 long training (resumable)")
     if not cuda_available():
         print("[autopilot] CUDA not available — skipping the long GPU run (honest refusal)")
         return
-    overrides: Dict[str, object] = {}
+    # a fresh Colab VM has no token shards either (they are gitignored); --mode resume
+    # must not train on a missing dataset, so build only what is actually absent
+    if not (ROOT / "data/processed/pretrain_train.bin").exists():
+        print("[autopilot] token shards missing on this VM -> building them first "
+              "(one-off, ~10-20 min)")
+        stage_prepare()
+    restored = stage_restore("checkpoints/t4-full")
+    overrides: Dict[str, object] = {"mirror_keep": 2}
     if steps:
         overrides["max_steps"] = steps
     if not (ROOT / "checkpoints/t4-full/latest.json").exists():
@@ -366,18 +475,23 @@ def stage_train(choice: Dict[str, object], session_budget_min: int, steps: Optio
     cfg = _generate_config("configs/pretraining_colab_t4.yaml",
                            "configs/_autogen_full.yaml", choice, overrides)
 
-    # Colab kills the VM without warning; keep a safety margin and checkpoint often.
-    budget_sec = max(300, session_budget_min * 60 - 180)
-    budget_sec = min(budget_sec, 20000)
-    print(f"[autopilot] session budget {budget_sec/60:.0f} min, checkpoints every "
-          f"{'~200 steps' if budget_sec > 1200 else '~50 steps'}")
+    # Colab kills the VM without warning. The margin after the budget covers the
+    # final eval + save + the last Drive flush, so the newest checkpoint really lands
+    # on Drive before the runtime is gone.
+    budget_sec = max(300, session_budget_min * 60 - 420)
+    # 8 h is still well under Colab's ~12 h ceiling and the old 5.5 h cap threw away
+    # 2.5 h of GPU time every session (that is a whole extra session every 2 runs).
+    budget_sec = min(budget_sec, MAX_SESSION_SEC)
+    print(f"[autopilot] session budget {budget_sec/60:.0f} min; checkpoints every 200 "
+          "steps with a background Drive mirror (training no longer waits for Drive)")
     rc, out = sh_stream([PY, "training/pretrain.py", "--config", str(cfg.relative_to(ROOT)),
                          "--run-id", f"autopilot-full-{time.strftime('%H%M')}",
                          "--resume", "auto", "--time-budget-sec", str(budget_sec)])
     oom = "out of memory" in out.lower()
     status = {"returncode": rc, "out_of_memory": oom, "budget_sec": budget_sec,
               "batch_size": choice["batch_size"], "seq_len": choice["seq_len"],
-              "dtype": choice["dtype"]}
+              "dtype": choice["dtype"], "restored_from": restored,
+              "mirror_lines": [ln for ln in out.splitlines() if ln.startswith("[mirror]")][-5:]}
     (REPORTS / "autopilot_train_status.json").write_text(
         json.dumps(status, indent=2) + "\n", encoding="utf-8")
     if oom:
@@ -570,12 +684,18 @@ def self_test() -> None:
                 "seq_len": 64, "batch_size": 2, "grad_accum_steps": 1,
                 "max_steps": 3, "warmup_steps": 1, "eval_every": 3, "save_every": 3,
                 "log_every": 1, "checkpoint_dir": "checkpoints/_selftest",
+                "mirror_dir": "checkpoints/_selftest_mirror", "mirror_keep": 2,
                 "log_dir": "logs", "run_name": "autopilot-selftest"})
     p = ROOT / "configs/_selftest.yaml"
     p.write_text(yaml.safe_dump(cfg, sort_keys=False), encoding="utf-8")
     sh([PY, "training/pretrain.py", "--config", "configs/_selftest.yaml", "--run-id", "st"],
        check=False, capture=True)
     res = verify_pilot("configs/_selftest.yaml")
+    # the async Drive mirror must have produced a complete checkpoint + pointer
+    mirrored = ROOT / "checkpoints/_selftest_mirror"
+    mir_ok = (mirrored / "latest.json").exists() and bool(list(mirrored.glob("*.pt")))
+    assert mir_ok, "async mirror wrote nothing — the Drive path would lose history"
+    print(f"[self-test] async mirror OK: {sorted(p.name for p in mirrored.glob('*.pt'))}")
     # the chooser must reproduce the safe decision on the REAL T4 measurements
     real_t4 = {"results": [
         {"dtype": "float32", "batch_size": 8, "seq_len": 512, "tokens_per_step": 4096,
@@ -609,6 +729,7 @@ def self_test() -> None:
     ok = res["logged_steps"] > 0 and res["all_losses_finite"]
     print(f"\n[self-test] {'PASS' if ok else 'FAIL'} — orchestration wired correctly")
     shutil.rmtree(ROOT / "checkpoints/_selftest", ignore_errors=True)
+    shutil.rmtree(ROOT / "checkpoints/_selftest_mirror", ignore_errors=True)
     p.unlink(missing_ok=True)
     for f in (ROOT / "logs").glob("autopilot-selftest-*"):
         f.unlink(missing_ok=True)
@@ -641,7 +762,10 @@ def main() -> None:
 def _main_impl() -> None:
     ap = argparse.ArgumentParser(description="ANKIT LLM one-command Colab autopilot")
     ap.add_argument("--mode", default="all",
-                    choices=["all", "prepare", "benchmark", "pilot", "train", "sft", "eval"])
+                    choices=["all", "resume", "prepare", "benchmark", "pilot", "train",
+                             "sft", "eval"],
+                    help="resume = restore the newest Drive checkpoint and train, "
+                         "skipping prepare/benchmark/pilot/resume-test (~8 min saved)")
     ap.add_argument("--session-budget-min", type=int, default=500,
                     help="wall-clock budget for the long run in this Colab session")
     ap.add_argument("--pilot-steps", type=int, default=300)
@@ -655,12 +779,12 @@ def _main_impl() -> None:
         self_test()
         return
 
-    if not cuda_available() and args.mode in ("all", "benchmark", "pilot", "train"):
+    if not cuda_available() and args.mode in ("all", "resume", "benchmark", "pilot", "train"):
         print("=" * 78)
         print("No CUDA device found. The GPU stages are skipped rather than faked.")
         print("In Colab: Runtime -> Change runtime type -> Hardware accelerator: T4 GPU")
         print("=" * 78)
-        if args.mode in ("all", "benchmark", "pilot"):
+        if args.mode in ("all", "resume", "benchmark", "pilot"):
             args.mode = "prepare"
 
     bench: Optional[Dict[str, object]] = None
@@ -686,7 +810,20 @@ def _main_impl() -> None:
         (REPORTS / "autopilot_resume_test.json").write_text(
             json.dumps(resume or {"skipped": True, "reason": "pilot verification failed"},
                        indent=2) + "\n", encoding="utf-8")
-    if args.mode in ("all", "train") and not pilot_ok:
+    if args.mode == "resume":
+        choice = load_choice()
+        if choice is None:
+            print("[autopilot] no measured config found for this VM or on Drive -> "
+                  "measuring it now (needed: we must not guess a VRAM config)")
+            bench = stage_benchmark(quick=False)
+            choice = choose_config(bench)
+        else:
+            print("[autopilot] reusing the measured config: "
+                  f"{choice.get('dtype')} / bs {choice.get('batch_size')} / "
+                  f"seq {choice.get('seq_len')} / accum {choice.get('grad_accum_steps')}")
+        pilot_ok = True
+        stage_train(choice, args.session_budget_min, args.max_steps)
+    elif args.mode in ("all", "train") and not pilot_ok:
         print("[autopilot] refusing to start the long run: the pilot was not verified")
     elif args.mode in ("all", "train"):
         if choice is None:
