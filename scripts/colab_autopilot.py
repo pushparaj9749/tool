@@ -48,8 +48,16 @@ REPORTS = ROOT / "reports"
 LOGS = ROOT / "logs"
 PY = sys.executable
 DRIVE_DEFAULT = "/content/drive/MyDrive/ankit-llm"
-VRAM_HEADROOM_GB = 13.0          # leave room for validation + checkpointing on a 15 GB T4
 TARGET_TOKENS_PER_STEP = 8192    # 8192 = 8 x 2 x 512, the config used in the runbook
+VRAM_BUDGET_FRACTION = 0.80      # of the card's total VRAM
+# 1.35 = headroom for what the benchmark cannot see (first-step Adam moments,
+# allocator fragmentation, the validation batch). The first T4 session showed a
+# measured 8.78 GB config needing 13.44 GB in training, so anything that still
+# slips through is caught by the pilot's OOM retry instead of killing the session.
+VRAM_SAFETY_FACTOR = 1.35        # measured peak x this must still fit the budget
+NEAR_BEST_TOLERANCE = 0.05       # within 5% of the best tok/s -> prefer longer context
+MAX_PILOT_ATTEMPTS = 4           # OOM self-healing: bs/2, seq/2, ... then give up
+VRAM_HEADROOM_GB = 13.0          # kept for the fallback path / old reports
 
 
 # --------------------------------------------------------------------------- utils
@@ -60,6 +68,22 @@ def sh(cmd: List[str], check: bool = True, capture: bool = False) -> subprocess.
         return subprocess.run(cmd, cwd=ROOT, check=check, text=True,
                               capture_output=True)
     return subprocess.run(cmd, cwd=ROOT, check=check)
+
+
+def sh_stream(cmd: List[str]) -> tuple[int, str]:
+    """Run a command, echo its output live AND keep the text (OOM detection)."""
+    print(f"\n$ {' '.join(str(c) for c in cmd)}", flush=True)
+    env = dict(os.environ)
+    env.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+    env.setdefault("PYTHONUNBUFFERED", "1")
+    buf: List[str] = []
+    proc = subprocess.Popen(cmd, cwd=ROOT, stdout=subprocess.PIPE,
+                            stderr=subprocess.STDOUT, text=True, bufsize=1, env=env)
+    assert proc.stdout is not None
+    for line in proc.stdout:
+        print(line, end="", flush=True)
+        buf.append(line)
+    return proc.wait(), "".join(buf)
 
 
 def py(script: str, *args: str, check: bool = True) -> subprocess.CompletedProcess:
@@ -127,14 +151,52 @@ def stage_benchmark(quick: bool = False) -> Dict[str, object]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+VRAM_OVERRIDE_GB: Optional[float] = None
+
+
+def total_vram_gb() -> Optional[float]:
+    if VRAM_OVERRIDE_GB is not None:      # used by --self-test on a GPU-less host
+        return VRAM_OVERRIDE_GB
+    try:
+        import torch
+        return round(torch.cuda.get_device_properties(0).total_memory / 1e9, 2)
+    except Exception:                                    # noqa: BLE001
+        return None
+
+
 def choose_config(bench: Dict[str, object]) -> Dict[str, object]:
-    """Pick the fastest finite config that fits in VRAM; then size grad-accum."""
+    """Pick the fastest config that fits in VRAM with a real safety margin.
+
+    The first T4 session proved that a "measured peak" close to the card's limit is
+    not safe: the benchmark reported 8.78 GB for fp16/bs32/seq256 and real training
+    then OOM'd at 13.4 GB (Adam moments + first-step temporaries + fragmentation).
+    So the budget is a fraction of the actual card, times an explicit safety factor,
+    and the pilot stage still self-heals if it OOMs anyway.
+    """
     rows = [r for r in bench.get("results", [])
             if r.get("status") == "ok" and r.get("loss_finite") and r.get("tokens_per_second")]
     if not rows:
         raise RuntimeError("no benchmark configuration succeeded — refusing to guess")
-    fits = [r for r in rows if (r.get("peak_vram_gb") or 0) <= VRAM_HEADROOM_GB] or rows
-    best = max(fits, key=lambda r: r["tokens_per_second"])
+
+    total = total_vram_gb()
+    budget = round(VRAM_BUDGET_FRACTION * total, 2) if total else VRAM_HEADROOM_GB
+    safe = [r for r in rows
+            if (r.get("peak_vram_gb") or 0) * VRAM_SAFETY_FACTOR <= budget]
+    tier = "peak x %.2f <= %.2f GB budget" % (VRAM_SAFETY_FACTOR, budget)
+    if not safe:
+        safe = [r for r in rows if (r.get("peak_vram_gb") or 0) <= budget]
+        tier = "peak <= %.2f GB budget (safety factor relaxed)" % budget
+    if not safe:
+        cheapest = min(rows, key=lambda r: r.get("peak_vram_gb") or 1e9)
+        safe = [cheapest]
+        tier = "no config fits the budget — fell back to the smallest measured one"
+
+    best_tps = max(r["tokens_per_second"] for r in safe)
+    near = [r for r in safe if r["tokens_per_second"] >= best_tps * (1 - NEAR_BEST_TOLERANCE)]
+    max_seq = max(r["seq_len"] for r in near)
+    pool = [r for r in near if r["seq_len"] == max_seq]
+    best = max(pool, key=lambda r: r["tokens_per_second"])
+
     tokens_per_micro = best["batch_size"] * best["seq_len"]
     accum = max(1, round(TARGET_TOKENS_PER_STEP / tokens_per_micro))
     decision = {
@@ -147,9 +209,12 @@ def choose_config(bench: Dict[str, object]) -> Dict[str, object]:
         "measured_peak_vram_gb": best.get("peak_vram_gb"),
         "measured_gpu_utilization_pct": best.get("gpu_utilization_pct"),
         "seconds_per_step": best.get("seconds_per_step"),
-        "chosen_from": len(fits),
-        "reason": ("highest measured tokens/s among finite configs within "
-                   f"{VRAM_HEADROOM_GB} GB; grad-accum sized to ~{TARGET_TOKENS_PER_STEP} tokens/step"),
+        "vram_budget_gb": budget,
+        "gpu_total_vram_gb": total,
+        "chosen_from": len(safe),
+        "reason": (f"fastest run within {NEAR_BEST_TOLERANCE:.0%} of the best tokens/s among "
+                   f"{len(safe)} configs that satisfy {tier}; longest context preferred "
+                   f"(seq {max_seq}); grad-accum sized to ~{TARGET_TOKENS_PER_STEP} tokens/step"),
     }
     print(json.dumps(decision, indent=2))
     REPORTS.mkdir(exist_ok=True)
@@ -178,14 +243,57 @@ def _generate_config(src: str, dst: str, choice: Dict[str, object],
     return out
 
 
-def stage_pilot(choice: Dict[str, object], pilot_steps: int = 300) -> bool:
+def _downgrade(choice: Dict[str, object]) -> Optional[Dict[str, object]]:
+    """Halve the batch, then the sequence length; keep ~TARGET_TOKENS_PER_STEP."""
+    c = dict(choice)
+    if int(c["batch_size"]) > 1:
+        c["batch_size"] = int(c["batch_size"]) // 2
+    elif int(c["seq_len"]) > 256:
+        c["seq_len"] = int(c["seq_len"]) // 2
+    else:
+        return None
+    micro = int(c["batch_size"]) * int(c["seq_len"])
+    c["grad_accum_steps"] = max(1, round(TARGET_TOKENS_PER_STEP / micro))
+    c["tokens_per_step"] = micro * int(c["grad_accum_steps"])
+    c["reason"] = str(c.get("reason", "")) + " | downgraded after a CUDA OOM"
+    return c
+
+
+def stage_pilot(choice: Dict[str, object], pilot_steps: int = 300
+                ) -> tuple[bool, Dict[str, object]]:
+    """Run the pilot, halving the memory footprint and retrying if it OOMs."""
     note("4/8 pilot run")
-    cfg = _generate_config("configs/pretraining_colab_pilot.yaml",
-                           "configs/_autogen_pilot.yaml", choice,
-                           {"max_steps": pilot_steps, "warmup_steps": max(10, pilot_steps // 10)})
-    r = py("training/pretrain.py", "--config", str(cfg.relative_to(ROOT)),
-           "--run-id", "autopilot-pilot", check=False)
-    return r.returncode == 0
+    attempts: List[dict] = []
+    cur = dict(choice)
+    rc, out = -1, ""
+    for attempt in range(1, MAX_PILOT_ATTEMPTS + 1):
+        run_name = "ankit-100m-t4-pilot" if attempt == 1 else f"ankit-100m-t4-pilot-try{attempt}"
+        cfg = _generate_config("configs/pretraining_colab_pilot.yaml",
+                               "configs/_autogen_pilot.yaml", cur,
+                               {"max_steps": pilot_steps,
+                                "warmup_steps": max(10, pilot_steps // 10),
+                                "run_name": run_name})
+        rc, out = sh_stream([PY, "training/pretrain.py", "--config",
+                             str(cfg.relative_to(ROOT)), "--run-id", f"autopilot-pilot-{attempt}"])
+        oom = "out of memory" in out.lower()
+        attempts.append({"attempt": attempt, "dtype": cur["dtype"],
+                         "batch_size": cur["batch_size"], "seq_len": cur["seq_len"],
+                         "grad_accum_steps": cur["grad_accum_steps"],
+                         "returncode": rc, "oom": oom})
+        REPORTS.mkdir(exist_ok=True)
+        (REPORTS / "autopilot_pilot_attempts.json").write_text(
+            json.dumps({"attempts": attempts, "final_config": cur}, indent=2) + "\n",
+            encoding="utf-8")
+        if not oom:
+            break
+        nxt = _downgrade(cur)
+        if nxt is None:
+            print("[autopilot] OOM even at the smallest config — stopping the pilot")
+            break
+        print(f"[autopilot] OOM -> retry {attempt + 1} with bs {nxt['batch_size']} / "
+              f"seq {nxt['seq_len']} / accum {nxt['grad_accum_steps']}", flush=True)
+        cur = nxt
+    return (rc == 0 and not attempts[-1]["oom"]), cur
 
 
 def verify_pilot(cfg_rel: str = "configs/_autogen_pilot.yaml") -> Dict[str, object]:
@@ -263,9 +371,18 @@ def stage_train(choice: Dict[str, object], session_budget_min: int, steps: Optio
     budget_sec = min(budget_sec, 20000)
     print(f"[autopilot] session budget {budget_sec/60:.0f} min, checkpoints every "
           f"{'~200 steps' if budget_sec > 1200 else '~50 steps'}")
-    sh([PY, "training/pretrain.py", "--config", str(cfg.relative_to(ROOT)),
-        "--run-id", f"autopilot-full-{time.strftime('%H%M')}", "--resume", "auto",
-        "--time-budget-sec", str(budget_sec)], check=False)
+    rc, out = sh_stream([PY, "training/pretrain.py", "--config", str(cfg.relative_to(ROOT)),
+                         "--run-id", f"autopilot-full-{time.strftime('%H%M')}",
+                         "--resume", "auto", "--time-budget-sec", str(budget_sec)])
+    oom = "out of memory" in out.lower()
+    status = {"returncode": rc, "out_of_memory": oom, "budget_sec": budget_sec,
+              "batch_size": choice["batch_size"], "seq_len": choice["seq_len"],
+              "dtype": choice["dtype"]}
+    (REPORTS / "autopilot_train_status.json").write_text(
+        json.dumps(status, indent=2) + "\n", encoding="utf-8")
+    if oom:
+        print("[autopilot] the long run hit CUDA OOM — the pilot config needs one more "
+              "step down; re-run and the chooser will use the safer measured peak")
 
 
 def stage_sft(choice: Dict[str, object]) -> None:
@@ -349,8 +466,16 @@ def stage_summary(choice: Optional[Dict[str, object]],
                   json.dumps(choice, indent=2), "```", ""]
     if pilot:
         lines += ["## Pilot verification", "", "```", json.dumps(pilot, indent=2), "```", ""]
+    attempts = REPORTS / "autopilot_pilot_attempts.json"
+    if attempts.exists():
+        lines += ["## Pilot attempts (OOM self-healing)", "", "```",
+                  attempts.read_text(encoding="utf-8").strip(), "```", ""]
     if resume is not None:
         lines += ["## Resume verification", "", "```", json.dumps(resume, indent=2), "```", ""]
+    train_status = REPORTS / "autopilot_train_status.json"
+    if train_status.exists():
+        lines += ["## Long-run status", "", "```",
+                  train_status.read_text(encoding="utf-8").strip(), "```", ""]
 
     ckpts = []
     for meta in sorted((ROOT / "checkpoints").rglob("*.json")):
@@ -451,18 +576,36 @@ def self_test() -> None:
     sh([PY, "training/pretrain.py", "--config", "configs/_selftest.yaml", "--run-id", "st"],
        check=False, capture=True)
     res = verify_pilot("configs/_selftest.yaml")
-    fake = {"results": [
-        {"dtype": "fp32", "batch_size": 2, "seq_len": 512, "tokens_per_step": 1024,
-         "status": "ok", "loss_finite": True, "tokens_per_second": 3000, "peak_vram_gb": 9.0},
-        {"dtype": "fp16", "batch_size": 8, "seq_len": 512, "tokens_per_step": 4096,
-         "status": "ok", "loss_finite": True, "tokens_per_second": 24000, "peak_vram_gb": 12.1},
-        {"dtype": "fp16", "batch_size": 16, "seq_len": 512, "tokens_per_step": 8192,
-         "status": "oom", "loss_finite": False, "tokens_per_second": None},
+    # the chooser must reproduce the safe decision on the REAL T4 measurements
+    real_t4 = {"results": [
+        {"dtype": "float32", "batch_size": 8, "seq_len": 512, "tokens_per_step": 4096,
+         "status": "ok", "loss_finite": True, "tokens_per_second": 5292.3, "peak_vram_gb": 6.05},
+        {"dtype": "float16", "batch_size": 8, "seq_len": 512, "tokens_per_step": 4096,
+         "status": "ok", "loss_finite": True, "tokens_per_second": 14636.7, "peak_vram_gb": 5.08},
+        {"dtype": "float16", "batch_size": 16, "seq_len": 512, "tokens_per_step": 8192,
+         "status": "ok", "loss_finite": True, "tokens_per_second": 16136.6, "peak_vram_gb": 8.78},
+        {"dtype": "float16", "batch_size": 32, "seq_len": 256, "tokens_per_step": 8192,
+         "status": "ok", "loss_finite": True, "tokens_per_second": 16870.3, "peak_vram_gb": 8.78},
+        {"dtype": "float16", "batch_size": 32, "seq_len": 512, "tokens_per_step": 16384,
+         "status": "oom", "loss_finite": False, "tokens_per_second": None, "peak_vram_gb": None},
+        {"dtype": "bfloat16", "batch_size": 8, "seq_len": 1024, "tokens_per_step": 8192,
+         "status": "ok", "loss_finite": True, "tokens_per_second": 3123.2, "peak_vram_gb": 13.17},
     ]}
-    picked = choose_config(fake)
-    assert picked["dtype"] == "fp16" and picked["batch_size"] == 8, picked
-    assert picked["grad_accum_steps"] == 2, picked
-    print("[self-test] auto-chooser ignored OOM row and picked the fastest finite config: OK")
+    globals()["VRAM_OVERRIDE_GB"] = 15.64          # pretend to be the T4
+    picked = choose_config(real_t4)
+    budget = VRAM_BUDGET_FRACTION * 15.64
+    assert picked["dtype"] == "float16", picked
+    assert picked["measured_peak_vram_gb"] * VRAM_SAFETY_FACTOR <= budget + 1e-6, picked
+    assert picked["batch_size"] * picked["seq_len"] * picked["grad_accum_steps"] == 8192, picked
+    # the fp16/bs32/seq256 cell ("8.78 GB") is the one that OOM'd real training: rejected
+    assert not (picked["batch_size"] == 32), picked
+    assert picked["seq_len"] == 512, picked   # longest context within 5% of the best tok/s
+    assert picked["batch_size"] == 16, picked # bs16/seq512: near-max toc/s at 8.78 GB
+    print(f"[self-test] chooser on real T4 data -> {picked['dtype']} bs{picked['batch_size']} "
+          f"seq{picked['seq_len']} accum{picked['grad_accum_steps']} "
+          f"({picked['measured_tokens_per_second']} tok/s, "
+          f"{picked['measured_peak_vram_gb']} GB): OK")
+    globals()["VRAM_OVERRIDE_GB"] = None
     ok = res["logged_steps"] > 0 and res["all_losses_finite"]
     print(f"\n[self-test] {'PASS' if ok else 'FAIL'} — orchestration wired correctly")
     shutil.rmtree(ROOT / "checkpoints/_selftest", ignore_errors=True)
@@ -532,9 +675,9 @@ def _main_impl() -> None:
     resume: Optional[Dict[str, object]] = None
     pilot_ok = True
     if args.mode in ("all", "pilot"):
-        stage_pilot(choice, pilot_steps=args.pilot_steps)
+        ran_ok, choice = stage_pilot(choice, pilot_steps=args.pilot_steps)
         pilot = verify_pilot()
-        pilot_ok = bool(pilot["all_losses_finite"] and pilot["validation_ran"]
+        pilot_ok = bool(ran_ok and pilot["all_losses_finite"] and pilot["validation_ran"]
                         and pilot["checkpoints"])
         if pilot_ok:
             resume = stage_resume_test(choice)
@@ -554,8 +697,16 @@ def _main_impl() -> None:
                 bench = stage_benchmark(quick=True)
                 choice = choose_config(bench)
         stage_train(choice, args.session_budget_min, args.max_steps)
-    if args.mode in ("all", "sft") and choice is not None:
-        stage_sft(choice)
+    if args.mode == "sft" and choice is not None:
+        stage_sft(choice)                       # explicit request: run it
+    elif args.mode == "all":
+        ready = any((ROOT / c).exists() for c in ("checkpoints/t4-full/latest.json",
+                                                 "checkpoints/t4-pilot/latest.json"))
+        if choice is not None and pilot_ok and ready:
+            stage_sft(choice)
+        else:
+            print("[autopilot] SFT skipped: it needs a verified pilot AND a pretraining "
+                  "checkpoint (a 1-step model is not worth instruction-tuning)")
     if args.mode in ("all", "eval"):
         stage_eval()
 

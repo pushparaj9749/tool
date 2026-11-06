@@ -89,7 +89,11 @@ def bench_config(model_config, dataset, dtype, batch_size, seq_len, warmup, step
             step()
         if device.type == "cuda":
             torch.cuda.synchronize()
-            torch.cuda.reset_peak_memory_stats()
+            # NOTE: the peak is deliberately NOT reset here. Resetting hid the
+            # first-step spike (Adam moment creation + autocast/CE temporaries) and
+            # reported a *steady-state* peak — on a T4 that under-read by ~4.5 GB and
+            # a config that "measured 8.78 GB" then OOM'd real training at 13.4 GB.
+            steady_peak = torch.cuda.max_memory_allocated()
 
         times, losses, gnorms, utils = [], [], [], []
         for _ in range(steps):
@@ -120,7 +124,9 @@ def bench_config(model_config, dataset, dtype, batch_size, seq_len, warmup, step
         if not res["loss_finite"]:
             res["status"] = "nan"
         if device.type == "cuda":
+            # true peak for the whole config, including the first optimiser step
             res["peak_vram_gb"] = round(torch.cuda.max_memory_allocated() / 1e9, 2)
+            res["steady_peak_vram_gb"] = round(steady_peak / 1e9, 2)
             res["peak_vram_reserved_gb"] = round(torch.cuda.max_memory_reserved() / 1e9, 2)
         res["system_ram_gb"] = system_ram_gb()
     except torch.cuda.OutOfMemoryError:
