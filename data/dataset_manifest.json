@@ -7,7 +7,10 @@
       "dataset_name": "IITB English-Hindi parallel corpus (distributed via kumardeepak/nmt-anuvada)",
       "source_location": "https://github.com/kumardeepak/nmt-anuvada -> data/IITB.en-hi-{hi,en}.txt.zip",
       "license": "MIT (repository licence). Upstream IITB corpus is distributed for research use; see 'usage_restrictions'.",
-      "languages": ["hi", "en"],
+      "languages": [
+        "hi",
+        "en"
+      ],
       "download_date": "2026-11-06",
       "raw_size": "96 MB zipped / 1.56M sentence pairs",
       "processing_steps": [
@@ -26,7 +29,9 @@
       "dataset_name": "Project Gutenberg selections (NLTK gutenberg corpus)",
       "source_location": "https://github.com/nltk/nltk_data -> packages/corpora/gutenberg.zip",
       "license": "Public domain books (Project Gutenberg). Compilation distributed via nltk_data.",
-      "languages": ["en"],
+      "languages": [
+        "en"
+      ],
       "download_date": "2026-11-06",
       "raw_size": "4.2 MB zipped / 20 books",
       "processing_steps": [
@@ -41,7 +46,10 @@
       "dataset_name": "Hinglish-TOP dataset (Google Research)",
       "source_location": "https://github.com/google-research-datasets/Hinglish-TOP-Dataset -> Dataset/**/*.tsv",
       "license": "Apache-2.0 (CC-BY-4.0 for the underlying TOP data per the repository README)",
-      "languages": ["hinglish", "en"],
+      "languages": [
+        "hinglish",
+        "en"
+      ],
       "download_date": "2026-11-06",
       "raw_size": "50 MB (human annotated + synthetically generated TSVs)",
       "processing_steps": [
@@ -56,7 +64,9 @@
       "dataset_name": "HDRS Hindi dialogue corpus (Hindi Dialogue Restaurant Search)",
       "source_location": "https://github.com/skmalviya/HDRS-Corpus -> HDRS_Corpus.zip",
       "license": "MIT",
-      "languages": ["hi"],
+      "languages": [
+        "hi"
+      ],
       "download_date": "2026-11-06",
       "raw_size": "1.1 MB / 800+ Hindi dialogues",
       "processing_steps": [
@@ -65,13 +75,18 @@
         "attach a task system prompt"
       ],
       "usage_restrictions": "MIT: attribution required. Restaurant-search dialogues; domain-specific.",
-      "used_for": "instruction tuning (multi-turn Hindi)"
+      "used_for": "instruction tuning (multi-turn Hindi)",
+      "usage_note": "Only 120 dialogues per split file (360 total) are converted, so that Hindi restaurant dialogues do not dominate the instruction mix."
     },
     {
       "dataset_name": "ANKIT authored seed conversations (project-generated)",
       "source_location": "data/sft/seed_conversations.py (in this repository)",
       "license": "Project licence (see LICENSE); authored by this project, not scraped",
-      "languages": ["hi", "en", "hinglish"],
+      "languages": [
+        "hi",
+        "en",
+        "hinglish"
+      ],
       "download_date": "2026-11-06 (authored)",
       "raw_size": "~60 conversations x 3 personality modes",
       "processing_steps": [

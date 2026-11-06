@@ -35,7 +35,7 @@ a command that was run, not from estimation.
 
 ### 03 — Tokenizer (`tokenizer/train_tokenizer.py`)
 - byte-level BPE, vocab 32,768, min_frequency 2, max_token_length 16,
-  initial_alphabet = all 256 bytes, trained on a 63 MB mixed corpus.
+  initial_alphabet = all 256 bytes, trained on a 63.5 MB / 34.7M-character mixed corpus.
 - specials: `<pad>`0 `<unk>`1 `<bos>`2 `<eos>`3 `<|system|>`4 `<|user|>`5 `<|assistant|>`6 `<|end|>`7.
 - fixes during the session: `ByteLevelBPETokenizer.train(length=…)` is unsupported in
   tokenizers 0.23.3 → switched to an explicit `BpeTrainer`; `encode_supervised` was missing the

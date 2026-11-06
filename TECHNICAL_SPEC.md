@@ -49,7 +49,7 @@ this project's corpus, nothing is imported).
   combining marks, Hinglish Latin text and emoji all share one lossless representation.
 - Chat template:
   `<bos><|system|>…<|end|><|user|>…<|end|><|assistant|>…<|end|>`
-- Training corpus: 63 MB mixed-language sample (Hindi 45%, English 35%, Hinglish 20%).
+- Training corpus: 63.5 MB on disk = 34.7M characters (Devanagari 14.3M, Latin 13.1M), capped at 45% Hindi / 35% English / 20% Hinglish characters (Hindi+English filled their caps; Hinglish had only ~2.7M characters available).
 - Round-trip and special-token behaviour verified by `tokenizer/tokenizer_tests.py`.
 
 ## 3. Data
