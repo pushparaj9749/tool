@@ -31,7 +31,8 @@ from training.checkpoint import (                             # noqa: E402
 )
 from training.metrics import RunLogger, perplexity            # noqa: E402
 from training.optimizer import build_optimizer, clip_gradients, set_lr  # noqa: E402
-from training.pretrain import pick_device, pick_dtype, set_seed  # noqa: E402
+from training.device import make_grad_scaler, needs_grad_scaler      # noqa: E402
+from training.pretrain import pick_device, pick_dtype, set_seed       # noqa: E402
 from training.scheduler import lr_at_step                     # noqa: E402
 
 
@@ -149,6 +150,7 @@ def main() -> None:
           f"{model.num_parameters():,} params)")
 
     optimizer = build_optimizer(model, cfg)
+    scaler = make_grad_scaler(dtype, device)     # fp16 on Turing-class GPUs
     logger = RunLogger(cfg["log_dir"], cfg["run_name"], run_id)
 
     steps_per_epoch = max(1, len(train_ds) // (cfg["batch_size"] * cfg["grad_accum_steps"]))
@@ -189,10 +191,13 @@ def main() -> None:
             with torch.autocast(device_type=device.type, dtype=dtype, enabled=dtype != torch.float32):
                 out = model(x, targets=y)
                 loss = out.loss / cfg["grad_accum_steps"]
-            loss.backward()
+            scaler.scale(loss).backward()
             step_loss += float(loss.item())
+        if scaler.is_enabled():
+            scaler.unscale_(optimizer)          # required before clipping in fp16
         gnorm = clip_gradients(model.parameters(), cfg["grad_clip"])
-        optimizer.step()
+        scaler.step(optimizer)
+        scaler.update()
         step += 1
         running += step_loss
 
@@ -213,12 +218,13 @@ def main() -> None:
                 save_checkpoint(cfg["checkpoint_dir"], f"best-step{step}", model, optimizer, step,
                                 step * cfg["batch_size"] * cfg["grad_accum_steps"], model_config, cfg,
                                 best_val, extra={"eval": metrics, "run_id": run_id,
-                                                 "stage": "sft", "init_checkpoint": str(init_path)})
+                                                 "stage": "sft", "init_checkpoint": str(init_path)},
+                                scaler=scaler)
 
         if step % cfg["save_every"] == 0:
             save_checkpoint(cfg["checkpoint_dir"], f"step{step}", model, optimizer, step,
                             step * cfg["batch_size"] * cfg["grad_accum_steps"], model_config, cfg,
-                            best_val, extra={"run_id": run_id, "stage": "sft"})
+                            best_val, extra={"run_id": run_id, "stage": "sft"}, scaler=scaler)
             prune_checkpoints(cfg["checkpoint_dir"], 3)
 
         if args.time_budget_sec and (time.time() - t0) > args.time_budget_sec:
@@ -233,7 +239,8 @@ def main() -> None:
                                  step * cfg["batch_size"] * cfg["grad_accum_steps"], model_config, cfg,
                                  metrics["sft_val_loss"],
                                  extra={"eval": metrics, "run_id": run_id, "stage": "sft",
-                                        "init_checkpoint": str(init_path), "stop_reason": stop_reason})
+                                        "init_checkpoint": str(init_path), "stop_reason": stop_reason},
+                                 scaler=scaler)
     logger.log(event="end", step=step, stop_reason=stop_reason, **metrics)
     logger.summary(run_id=run_id, run_name=cfg["run_name"], steps=step, init_checkpoint=str(init_path),
                    sft_val_loss=metrics["sft_val_loss"], stop_reason=stop_reason,

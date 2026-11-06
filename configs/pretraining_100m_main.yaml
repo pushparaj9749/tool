@@ -1,0 +1,47 @@
+# ANKIT LLM v0.1 — 100M MODEL MAIN RUN (CPU-only host)
+#
+# Same architecture as configs/model.yaml (97,435,392 parameters) — nothing is shrunk.
+# What changed vs the first pilot is throughput and schedule:
+#   * seq_len 512 with batch 2 measured 311 tok/s vs 120 tok/s at seq_len 256/batch 2
+#     (bigger sequences keep MKL matmuls efficient and amortise per-step overhead).
+#   * the cosine schedule is now anchored to the step budget that this host can
+#     actually reach, so the LR actually decays instead of being cut off at 6% of
+#     its schedule.
+#   * validation is lighter (4 batches) so it does not eat training time.
+#
+# IMPORTANT: this is still NOT a compute-optimal run. 2,457,600 tokens is ~0.12% of a
+# Chinchilla-style budget for 97.4M parameters (~2B tokens). See PROJECT_STATUS.md.
+run_name: ankit-100m-main
+model_config: configs/model.yaml
+tokenizer_dir: tokenizer/ankit_bpe
+data_dir: data/processed
+train_bin: data/processed/pretrain_train.bin
+val_bin: data/processed/pretrain_val.bin
+
+batch_size: 1             # batch 2 at seq 512 OOM-killed this 3.8 GB host at 3.23 GB RSS
+grad_accum_steps: 4
+seq_len: 512              # 1 x 4 x 512 = 2,048 tokens per optimizer step
+max_steps: 1000           # -> 2,048,000 tokens
+learning_rate: 6.0e-4
+min_lr_ratio: 0.1
+warmup_steps: 100
+weight_decay: 0.1
+beta1: 0.9
+beta2: 0.95
+grad_clip: 1.0
+lr_schedule: cosine
+optimizer: adamw
+
+dtype: fp32               # bf16 autocast measured SLOWER on this CPU (89 tok/s) -> fp32
+device: cpu
+seed: 1337
+num_workers: 0
+log_every: 10
+eval_every: 100
+eval_batches: 4           # val loss on 4 x 2 x 512 = 4,096 held-out tokens
+save_every: 50
+keep_last_checkpoints: 2
+checkpoint_dir: checkpoints/pretrain-100m-main
+log_dir: logs
+storage_min_free_gb: 2.0
+resume: auto

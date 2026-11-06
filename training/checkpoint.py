@@ -48,6 +48,8 @@ def save_checkpoint(
     run_cfg: Dict[str, Any],
     best_val_loss: Optional[float] = None,
     extra: Optional[Dict[str, Any]] = None,
+    scaler: Optional[Any] = None,
+    mirror_dir: Optional[str | Path] = None,
 ) -> Path:
     ckpt_dir = Path(ckpt_dir)
     ckpt_dir.mkdir(parents=True, exist_ok=True)
@@ -62,8 +64,11 @@ def save_checkpoint(
         "model_config": model_config.to_dict(),
         "run_config": run_cfg,
         "best_val_loss": best_val_loss,
-        "model": model.state_dict(),
-        "optimizer": optimizer.state_dict() if optimizer is not None else None,
+        # tensors are moved to CPU so a checkpoint written on a GPU host can be
+        # resumed on a CPU host (and vice versa) and loaded without a GPU present
+        "model": {k: v.detach().cpu() for k, v in model.state_dict().items()},
+        "optimizer": _optimizer_to_cpu(optimizer),
+        "scaler": scaler.state_dict() if scaler is not None and getattr(scaler, "is_enabled", lambda: False)() else None,
         "torch_rng": torch.get_rng_state(),
         "extra": extra or {},
     }
@@ -83,7 +88,50 @@ def save_checkpoint(
     (ckpt_dir / "latest.json").write_text(
         json.dumps({"tag": tag, **sidecar}, indent=2) + "\n", encoding="utf-8"
     )
+    if mirror_dir:
+        mirror_checkpoint(final, ckpt_dir / f"{tag}.json", mirror_dir)
     return final
+
+
+def _optimizer_to_cpu(optimizer: Optional[torch.optim.Optimizer]) -> Optional[Dict[str, Any]]:
+    if optimizer is None:
+        return None
+    state = optimizer.state_dict()
+    for entry in state.get("state", {}).values():
+        for key, value in list(entry.items()):
+            if torch.is_tensor(value):
+                entry[key] = value.detach().cpu()
+    return state
+
+
+def _prune_mirror(mirror: Path, keep: int = 3) -> None:
+    """Keep the newest N mirrored .pt files (Drive fills up fast at 1.1 GB each)."""
+    files = sorted(mirror.glob("*.pt"), key=lambda p: p.stat().st_mtime)
+    for old in files[:-keep] if keep > 0 else []:
+        for path in (old, old.with_suffix(".json")):
+            if path.exists():
+                path.unlink()
+
+
+def mirror_checkpoint(ckpt_file: Path, sidecar_file: Path, mirror_dir: str | Path) -> Optional[Path]:
+    """Copy a checkpoint to persistent storage (e.g. mounted Google Drive).
+
+    Written to a .partial name first, then renamed, so a Colab disconnect during
+    the copy can never leave a truncated file masquerading as the latest checkpoint.
+    """
+    try:
+        mirror = Path(mirror_dir)
+        mirror.mkdir(parents=True, exist_ok=True)
+        dest = mirror / ckpt_file.name
+        tmp = mirror / (ckpt_file.name + ".partial")
+        shutil.copyfile(ckpt_file, tmp)
+        shutil.copyfile(sidecar_file, mirror / sidecar_file.name)
+        os.replace(tmp, dest)
+        _prune_mirror(mirror, keep=3)
+        return dest
+    except OSError as exc:                     # Drive hiccups must not kill training
+        print(f"[checkpoint] WARNING mirror to {mirror_dir} failed: {exc}")
+        return None
 
 
 def list_checkpoints(ckpt_dir: str | Path) -> list[dict]:
@@ -139,6 +187,7 @@ def load_checkpoint(path: str | Path, map_location: str = "cpu",
     payload = torch.load(path, map_location=map_location, weights_only=False)
     if not with_optimizer:
         payload["optimizer"] = None
+        payload["scaler"] = None
     return payload
 
 

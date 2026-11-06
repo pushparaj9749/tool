@@ -28,11 +28,11 @@
       }
     },
     "sft_train.jsonl": {
-      "rows": 509,
+      "rows": 462,
       "schema_errors": 0
     },
     "sft_val.jsonl": {
-      "rows": 34,
+      "rows": 39,
       "schema_errors": 0
     },
     "language_distribution": {

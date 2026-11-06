@@ -35,6 +35,9 @@ from training.checkpoint import (                           # noqa: E402
     resolve_resume, save_checkpoint,
 )
 from training.data_loader import PackedTokenDataset         # noqa: E402
+from training.device import (                               # noqa: E402
+    describe_environment, make_grad_scaler, needs_grad_scaler, pick_device, pick_dtype,
+)
 from training.metrics import RunLogger, perplexity          # noqa: E402
 from training.optimizer import build_optimizer, clip_gradients, set_lr  # noqa: E402
 from training.scheduler import lr_at_step                   # noqa: E402
@@ -48,18 +51,7 @@ def set_seed(seed: int) -> None:
         torch.cuda.manual_seed_all(seed)
 
 
-def pick_device(cfg_device: str) -> torch.device:
-    if cfg_device in ("auto", None):
-        return torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    return torch.device(cfg_device)
-
-
-def pick_dtype(cfg_dtype: str, device: torch.device) -> torch.dtype:
-    if cfg_dtype == "auto":
-        return torch.bfloat16 if device.type == "cuda" else torch.float32
-    return {"fp32": torch.float32, "float32": torch.float32,
-            "bf16": torch.bfloat16, "bfloat16": torch.bfloat16,
-            "fp16": torch.float16, "float16": torch.float16}[cfg_dtype]
+# pick_device / pick_dtype live in training/device.py (T4-aware)
 
 
 @torch.no_grad()
@@ -115,7 +107,13 @@ def main() -> None:
     model = AnkitLM(model_config).to(device)
     n_params = model.num_parameters()
     optimizer = build_optimizer(model, cfg)
+    scaler = make_grad_scaler(dtype, device)      # only enabled for fp16 on CUDA
+    mirror_dir = cfg.get("mirror_dir") or None
     logger = RunLogger(cfg["log_dir"], cfg["run_name"], run_id)
+    env_info = describe_environment()
+    print(f"[pretrain] env: {json.dumps(env_info)}")
+    if needs_grad_scaler(dtype, device):
+        print("[pretrain] fp16 detected -> dynamic loss scaling enabled (Turing-class GPU)")
 
     # config snapshot for reproducibility
     snapshot = Path(cfg["log_dir"]) / f"{cfg['run_name']}-{run_id}-config.json"
@@ -135,6 +133,8 @@ def main() -> None:
             model.load_state_dict(payload["model"])
             if payload.get("optimizer"):
                 optimizer.load_state_dict(payload["optimizer"])
+            if scaler.is_enabled() and payload.get("scaler"):
+                scaler.load_state_dict(payload["scaler"])
             start_step = payload["step"]
             tokens_seen = payload.get("tokens_seen", 0)
             best_val = payload.get("best_val_loss")
@@ -175,14 +175,18 @@ def main() -> None:
             step_t0 = time.time()
             for _ in range(cfg["grad_accum_steps"]):
                 x, y = train_ds.get_batch(cfg["batch_size"], cfg["seq_len"], str(device))
-                with torch.autocast(device_type=device.type, dtype=dtype, enabled=dtype != torch.float32):
+                with torch.autocast(device_type=device.type, dtype=dtype,
+                                    enabled=dtype != torch.float32):
                     out = model(x, targets=y)
                     loss = out.loss / cfg["grad_accum_steps"]
-                loss.backward()
+                scaler.scale(loss).backward()
                 step_loss += float(loss.item())
                 micro += 1
+            if scaler.is_enabled():
+                scaler.unscale_(optimizer)          # required before clipping in fp16
             grad_norm = clip_gradients(model.parameters(), cfg["grad_clip"])
-            optimizer.step()
+            scaler.step(optimizer)
+            scaler.update()
             tokens_seen += tokens_per_step
             step += 1
             running_loss += step_loss
@@ -212,11 +216,13 @@ def main() -> None:
                 if is_best:
                     save_checkpoint(cfg["checkpoint_dir"], f"best-step{step}", model, optimizer, step,
                                     tokens_seen, model_config, cfg, best_val,
-                                    extra={"eval": metrics, "run_id": run_id})
+                                    extra={"eval": metrics, "run_id": run_id},
+                                    scaler=scaler, mirror_dir=mirror_dir)
 
             if step % cfg["save_every"] == 0:
                 save_checkpoint(cfg["checkpoint_dir"], f"step{step}", model, optimizer, step,
-                                tokens_seen, model_config, cfg, best_val, extra={"run_id": run_id})
+                                tokens_seen, model_config, cfg, best_val,
+                                extra={"run_id": run_id}, scaler=scaler, mirror_dir=mirror_dir)
                 pruned = prune_checkpoints(cfg["checkpoint_dir"], cfg["keep_last_checkpoints"])
                 if pruned:
                     logger.log(event="pruned", step=step, removed=pruned)
@@ -243,6 +249,7 @@ def main() -> None:
         cfg["checkpoint_dir"], "final", model, optimizer, step, tokens_seen,
         model_config, cfg, final_metrics["val_loss"],
         extra={"eval": final_metrics, "run_id": run_id, "stop_reason": stop_reason},
+        scaler=scaler, mirror_dir=mirror_dir,
     )
     logger.log(event="end", step=step, tokens_seen=tokens_seen, stop_reason=stop_reason,
                final_val_loss=final_metrics["val_loss"], checkpoint=str(final_path))

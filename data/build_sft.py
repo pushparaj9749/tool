@@ -60,7 +60,7 @@ def seed_examples(personalities: dict) -> list[dict]:
     return out
 
 
-def hdrs_examples(raw_dir: Path, max_dialogues: int = 120) -> list[dict]:
+def hdrs_examples(raw_dir: Path, max_dialogues: int = 80) -> list[dict]:
     out = []
     base = raw_dir / "hdrs" / "HDRS_Corpus"
     if not base.exists():

@@ -241,4 +241,87 @@ SEED = [
     {"lang": "hinglish", "topic": "factual", "turns": [
         ("Bhai, HTML full form kya hai?", "HTML ka full form hai HyperText Markup Language. Yeh web pages banane ki standard language hai."),
     ]},
+
+    # ---------------------------------------------------------------- extended set
+    {"lang": "en", "topic": "explain", "turns": [
+        ('What is an API, in simple words?', 'An API is a fixed doorway that one program uses to ask another program for something. You send a request in an agreed format and get a response back, without needing to know how the other side is built.'),
+    ]},
+    {"lang": "hi", "topic": "explain", "turns": [
+        ('API क्या होता है, आसान शब्दों में?', 'API एक तय किया हुआ दरवाज़ा है जिससे एक प्रोग्राम दूसरे प्रोग्राम से कुछ माँगता है। आप तय फ़ॉर्मेट में अनुरोध भेजते हैं और जवाब मिलता है।'),
+    ]},
+    {"lang": "hinglish", "topic": "explain", "turns": [
+        ('API kya hota hai bhai?', 'API ek fixed darwaza hai jisse ek program doosre program se cheez maangta hai. Tum request bhejte ho, response milta hai — andar kaise chalta hai wo jaanna zaroori nahi.'),
+    ]},
+    {"lang": "en", "topic": "howto", "turns": [
+        ('How do I prepare for an exam in one week?', 'Pick the three topics with the most marks, do past papers for them first, then revise only what you got wrong. Sleep properly — cramming the night before usually costs more marks than it adds.'),
+    ]},
+    {"lang": "hi", "topic": "howto", "turns": [
+        ('एक हफ़्ते में परीक्षा की तैयारी कैसे करूँ?', 'पहले वे तीन विषय चुनें जिनके सबसे ज़्यादा अंक हैं, उनके पुराने प्रश्नपत्र हल करें, फिर सिर्फ़ ग़लतियों को दोहराएँ। नींद पूरी रखें — रातभर रटना नुकसान करता है।'),
+    ]},
+    {"lang": "en", "topic": "structure", "turns": [
+        ('Give me a weekly plan to learn SQL.', 'Day 1-2: SELECT, WHERE, ORDER BY. Day 3: GROUP BY with aggregates. Day 4: JOINs. Day 5: subqueries. Day 6: build one small project on sample data. Day 7: revise the queries you got wrong.'),
+    ]},
+    {"lang": "hinglish", "topic": "structure", "turns": [
+        ('SQL seekhne ka weekly plan do na.', 'Din 1-2: SELECT, WHERE, ORDER BY. Din 3: GROUP BY aur aggregates. Din 4: JOINs. Din 5: subqueries. Din 6: ek chhota project banao sample data par. Din 7: jo galat hua usko revise karo.'),
+    ]},
+    {"lang": "en", "topic": "math", "turns": [
+        ('A shirt costs 800 rupees after a 20 percent discount. What was the original price?', '1000 rupees. If 800 is 80 percent of the original price, the original is 800 divided by 0.8.'),
+    ]},
+    {"lang": "hi", "topic": "math", "turns": [
+        ('20 प्रतिशत छूट के बाद शर्ट 800 रुपये की है। असली कीमत क्या थी?', '1000 रुपये। 800 असली कीमत का 80 प्रतिशत है, इसलिए असली कीमत 800 ÷ 0.8 = 1000 है।'),
+    ]},
+    {"lang": "en", "topic": "clarify", "turns": [
+        ('Make it better.', 'I can, but I need to know what "it" is: the text, the code, or the plan? And what does better mean here — shorter, more formal, or more accurate?'),
+    ]},
+    {"lang": "hi", "topic": "clarify", "turns": [
+        ('इसे बेहतर कर दो।', 'कर सकता हूँ, पर पहले बताइए कि "इसे" क्या है — लेख, कोड या योजना? और बेहतर का मतलब क्या है, छोटा, औपचारिक या सटीक?'),
+    ]},
+    {"lang": "en", "topic": "uncertainty", "turns": [
+        ('What is the best laptop under 50,000 rupees?', "I cannot give you a current recommendation: I have no access to today's prices, models or reviews. I can tell you what to compare — RAM, SSD size, screen and service — but the final pick needs a live search."),
+    ]},
+    {"lang": "hi", "topic": "uncertainty", "turns": [
+        ('50,000 रुपये में सबसे अच्छा लैपटॉप कौन सा है?', 'मैं आज का भरोसेमंद सुझाव नहीं दे सकता, क्योंकि मेरे पास ताज़ा कीमतें और रिव्यू नहीं हैं। मैं बता सकता हूँ कि क्या तुलना करें — RAM, SSD, स्क्रीन और सर्विस।'),
+    ]},
+    {"lang": "hinglish", "topic": "uncertainty", "turns": [
+        ('Aaj ka best phone kaunsa hai?', 'Yaar, mere paas latest prices aur reviews nahi hain, isliye main galat suggestion de sakta hoon. Tum batao budget aur use-case, main compare karne ki checklist bata dunga.'),
+    ]},
+    {"lang": "en", "topic": "context", "turns": [
+        ('I work night shifts and cannot study in the morning.', 'Then keep study blocks right after you wake up, before the shift starts, and use short 25-minute sessions instead of one long one.'),
+        ('What about weekends?', 'Weekends can take the longer blocks — one 90-minute session per subject. Which subject needs the most time?'),
+    ]},
+    {"lang": "hi", "topic": "context", "turns": [
+        ('मैं रात की शिफ़्ट करता हूँ और सुबह पढ़ नहीं पाता।', 'फिर उठने के बाद, शिफ़्ट शुरू होने से पहले पढ़ें, और एक लंबे सत्र की जगह 25-25 मिनट के छोटे सत्र रखें।'),
+        ('वीकेंड में क्या करूँ?', 'वीकेंड में बड़े सत्र रखें — हर विषय के लिए 90 मिनट। किस विषय में सबसे ज़्यादा समय चाहिए?'),
+    ]},
+    {"lang": "hinglish", "topic": "context", "turns": [
+        ('Mera exam 3 hafte baad hai aur syllabus bada hai.', '3 hafte mein realistic rehna padega: poora syllabus nahi, high-weight topics pehle. Kaunse subjects sabse zyada marks ke hain?'),
+        ('Maths aur Physics.', 'Toh pehle hafte Maths ke 5 big chapters, doosre hafte Physics ke core topics, teesre hafte sirf revision aur mock. Roz 2 ghante, ek hi time par.'),
+    ]},
+    {"lang": "en", "topic": "rewrite", "turns": [
+        ('Turn this into a polite message: i need the report today', 'Hi, could you please share the report today? It would help me keep the review on schedule. Thank you.'),
+    ]},
+    {"lang": "hi", "topic": "rewrite", "turns": [
+        ('इसे विनम्र संदेश बनाओ: रिपोर्ट आज चाहिए', 'नमस्ते, कृपया रिपोर्ट आज भेज सकेंगे? इससे समीक्षा समय पर हो पाएगी। धन्यवाद।'),
+    ]},
+    {"lang": "en", "topic": "coding", "turns": [
+        ('How do I remove duplicates from a list in Python?', 'If order does not matter, use a set: list(set(items)). If order matters, use dict.fromkeys(items), which keeps the first occurrence.'),
+    ]},
+    {"lang": "hinglish", "topic": "coding", "turns": [
+        ('Python mein list se duplicate kaise hataun?', 'Order se farak nahi padta to list(set(items)) use karo. Order chahiye to dict.fromkeys(items) — pehla occurrence bacha rehta hai.'),
+    ]},
+    {"lang": "en", "topic": "professional", "turns": [
+        ('Write a two-line email asking for a deadline extension.', 'Subject: Request for a short extension\n\nDear Sir/Madam, I would like to request a two-day extension for the report due on Friday, as I am still waiting on data from another team. I will submit the complete draft by Monday morning.'),
+    ]},
+    {"lang": "hi", "topic": "professional", "turns": [
+        ('समय-सीमा बढ़ाने के लिए दो पंक्तियों का ईमेल लिखो।', 'विषय: समय-सीमा बढ़ाने हेतु प्रार्थना\n\nमहोदय/महोदया, शुक्रवार को देय रिपोर्ट के लिए दो दिन का समय बढ़ाने की प्रार्थना है, क्योंकि दूसरी टीम से डेटा प्रतीक्षित है। सोमवार सुबह तक पूरा ड्राफ़्ट सौंप दूँगा।'),
+    ]},
+    {"lang": "en", "topic": "friendly", "turns": [
+        ('I failed an interview today.', 'That stings, and it is allowed to sting. One interview is a data point, not a verdict — what question tripped you up? That is exactly what to practise next.'),
+    ]},
+    {"lang": "hinglish", "topic": "friendly", "turns": [
+        ('Aaj interview mein reject ho gaya yaar.', 'Yaar, bura lagta hai, bilkul natural hai. Ek interview judgment nahi hota — kaunsa sawaal atka? Bas wahi cheez next time practice karo.'),
+    ]},
+    {"lang": "hi", "topic": "friendly", "turns": [
+        ('आज इंटरव्यू में रिजेक्ट हो गया।', 'बुरा लगता है, और लगना भी चाहिए। एक इंटरव्यू फ़ैसला नहीं होता — कौन सा सवाल अटका? अगली बार वही अभ्यास करें।'),
+    ]},
 ]

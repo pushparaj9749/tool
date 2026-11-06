@@ -1,0 +1,38 @@
+# ANKIT LLM v0.1 — Colab T4 PILOT run (short, controlled; run only after benchmarks)
+# Same 97,435,392-parameter architecture as configs/model.yaml. Nothing shrunk.
+run_name: ankit-100m-t4-pilot
+model_config: configs/model.yaml
+tokenizer_dir: tokenizer/ankit_bpe
+data_dir: data/processed
+train_bin: data/processed/pretrain_train.bin
+val_bin: data/processed/pretrain_val.bin
+
+batch_size: 8              # start here; the benchmark tells you if 16 fits
+grad_accum_steps: 2
+seq_len: 512               # 8 x 2 x 512 = 8,192 tokens per optimiser step
+max_steps: 300             # ~2.46M tokens — a pilot, NOT the real run
+learning_rate: 6.0e-4
+min_lr_ratio: 0.1
+warmup_steps: 20
+weight_decay: 0.1
+beta1: 0.9
+beta2: 0.95
+grad_clip: 1.0
+lr_schedule: cosine
+optimizer: adamw
+
+dtype: auto                # -> fp16 + GradScaler on T4 (cc 7.5), bf16 on Ampere+
+device: auto
+seed: 1337
+num_workers: 0
+log_every: 10
+eval_every: 100
+eval_batches: 8
+save_every: 50
+keep_last_checkpoints: 3
+checkpoint_dir: checkpoints/t4-pilot
+log_dir: logs
+storage_min_free_gb: 2.0
+resume: auto
+# Persistent storage: every checkpoint is also copied here (atomic .partial -> rename)
+mirror_dir: /content/drive/MyDrive/ankit-llm/checkpoints/t4-pilot

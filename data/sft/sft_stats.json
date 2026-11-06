@@ -1,24 +1,24 @@
 {
-  "authored_seed_conversations": 61,
-  "authored_seed_examples_after_mode_replication": 183,
-  "hdrs_dialogues_converted": 360,
-  "unique_examples": 543,
-  "train": 509,
-  "val": 34,
+  "authored_seed_conversations": 87,
+  "authored_seed_examples_after_mode_replication": 261,
+  "hdrs_dialogues_converted": 240,
+  "unique_examples": 501,
+  "train": 462,
+  "val": 39,
   "by_source": {
-    "hdrs_hindi_dialogue": 360,
-    "authored_seed": 183
+    "authored_seed": 261,
+    "hdrs_hindi_dialogue": 240
   },
   "by_lang": {
-    "hi": 417,
-    "en": 93,
-    "hinglish": 33
+    "hinglish": 51,
+    "hi": 324,
+    "en": 126
   },
   "by_mode": {
-    "professional": 61,
-    "neutral": 360,
-    "friendly": 61,
-    "adaptive": 61
+    "professional": 87,
+    "adaptive": 87,
+    "friendly": 87,
+    "neutral": 240
   },
-  "total_turns": 3889
+  "total_turns": 3061
 }

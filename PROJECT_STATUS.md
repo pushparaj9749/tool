@@ -26,6 +26,22 @@ Hardware reality check (measured, `ENVIRONMENT_REPORT.md`): **2 vCPU, 3.8 GB RAM
 
 ---
 
+## GPU / Colab status (added after the T4 became available)
+
+| Item | Status | Notes |
+|---|---|---|
+| GPU compatibility audit | **DONE** | 5 real defects found and fixed; see `COLAB_GUIDE.md` §0 |
+| T4-aware dtype policy | **DONE** | `training/device.py`: fp16+GradScaler for cc<8.0, bf16 for Ampere+ |
+| fp16 loss scaling | **DONE** | scaler in pretrain + finetune, `unscale_()` before clipping, state checkpointed |
+| Portable checkpoints (CPU<->GPU) | **DONE** | tensors moved to CPU on save; `map_location` on load |
+| Drive mirroring + atomic write + mirror pruning | **DONE** | `mirror_dir`, `.partial` -> rename, keep 3 |
+| Colab notebook | **DONE** | `notebooks/ANKIT_LLM_Colab_T4.ipynb` (25 cells, benchmark + gated training) |
+| GPU benchmark (fp32/fp16/bf16 x bs1-8 x seq256/512) | **READY, NOT RUN** | `benchmarks/bench_gpu.py`; requires the user's T4 — no GPU exists in this build environment |
+| T4 pilot training | **READY, NOT RUN** | `configs/pretraining_colab_pilot.yaml` (300 steps) |
+| Full T4 pretraining (~2B tokens) | **GATED** | `configs/pretraining_colab_t4.yaml`, needs explicit approval |
+
+CPU-side training continues in parallel (`checkpoints/pretrain-100m-main/`).
+
 ## Phase-by-phase
 
 | Phase | Item | Status | Evidence |

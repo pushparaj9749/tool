@@ -65,6 +65,18 @@ curl -s localhost:8000/chat -H 'content-type: application/json' \
   -d '{"messages":[{"role":"user","content":"Hello ANKIT"}],"personality":"friendly"}'
 ```
 
+## Training on a Colab T4 GPU
+
+```bash
+# notebook: notebooks/ANKIT_LLM_Colab_T4.ipynb   (benchmark -> pilot -> gated long run)
+bash scripts/package_artifacts.sh              # zip tokenizer + shards for Drive (~130 MB)
+python benchmarks/bench_gpu.py --out reports/gpu_benchmark   # run on the GPU host first
+```
+
+`dtype: auto` resolves to **fp16 + GradScaler on a T4** (Turing has no bf16 tensor cores) and
+**bf16 on Ampere+**. Checkpoints are CPU-portable and mirrored to Drive atomically.
+See [`COLAB_GUIDE.md`](COLAB_GUIDE.md) for the full step-by-step.
+
 ## Documentation map
 
 - [`PROJECT_STATUS.md`](PROJECT_STATUS.md) — phase-by-phase status with evidence

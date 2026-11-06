@@ -1,0 +1,14 @@
+[pretrain] params=97,435,392 (97.44M) device=cpu dtype=torch.float32 train_tokens=24,100,344 val_tokens=402,704
+step      1 loss=1.0659 lr=6.00e-06 gnorm=30.20 tok/s=  275.8 eta= 123.6m
+step     10 loss=8.4991 lr=6.00e-05 gnorm=5.16 tok/s=  293.0 eta= 115.3m
+step     20 loss=8.3794 lr=1.20e-04 gnorm=3.21 tok/s=  298.0 eta= 112.3m
+step     30 loss=7.5452 lr=1.80e-04 gnorm=3.70 tok/s=  294.7 eta= 112.4m
+step     40 loss=6.1572 lr=2.40e-04 gnorm=3.09 tok/s=  284.9 eta= 115.0m
+step     50 loss=5.6166 lr=3.00e-04 gnorm=3.07 tok/s=  283.7 eta= 114.3m
+step     60 loss=5.9427 lr=3.60e-04 gnorm=2.94 tok/s=  280.2 eta= 114.5m
+step     70 loss=5.1825 lr=4.20e-04 gnorm=3.92 tok/s=  281.7 eta= 112.7m
+step     80 loss=5.4995 lr=4.80e-04 gnorm=1.47 tok/s=  281.2 eta= 111.7m
+step     90 loss=5.9636 lr=5.40e-04 gnorm=1.98 tok/s=  280.5 eta= 110.7m
+step    100 loss=5.0660 lr=6.00e-04 gnorm=2.41 tok/s=  272.0 eta= 112.9m
+  [eval] step 100 val_loss=6.6133 val_ppl=744.93 best=6.6133
+step    110 loss=5.3159 lr=6.00e-04 gnorm=1.27 tok/s=  248.5 eta= 122.3m

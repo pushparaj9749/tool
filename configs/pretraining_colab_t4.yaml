@@ -1,0 +1,44 @@
+# ANKIT LLM v0.1 — Colab T4 FULL pretraining target (~2B tokens)
+#
+# Same 97,435,392-parameter architecture. This config is resumable: the cosine
+# schedule is anchored to max_steps, so a Colab disconnect + resume continues on
+# exactly the same curve.
+#
+# Budget: 8 x 2 x 512 = 8,192 tokens/step x 244,141 steps = ~2.00B tokens.
+# On a T4 expect ~20-30k tokens/s -> ~19-28 GPU-hours -> 2-3 Colab sessions.
+# DO NOT start this before the pilot + benchmark are approved.
+run_name: ankit-100m-t4-full
+model_config: configs/model.yaml
+tokenizer_dir: tokenizer/ankit_bpe
+data_dir: data/processed
+train_bin: data/processed/pretrain_train.bin
+val_bin: data/processed/pretrain_val.bin
+
+batch_size: 8
+grad_accum_steps: 2
+seq_len: 512
+max_steps: 244141          # ~2.00B tokens (Chinchilla-style for 97.4M params)
+learning_rate: 6.0e-4
+min_lr_ratio: 0.1
+warmup_steps: 2000
+weight_decay: 0.1
+beta1: 0.9
+beta2: 0.95
+grad_clip: 1.0
+lr_schedule: cosine
+optimizer: adamw
+
+dtype: auto
+device: auto
+seed: 1337
+num_workers: 0
+log_every: 20
+eval_every: 500
+eval_batches: 8
+save_every: 200             # ~every 1.6M tokens; ~30 s Drive mirror each time
+keep_last_checkpoints: 2
+checkpoint_dir: checkpoints/t4-full
+log_dir: logs
+storage_min_free_gb: 3.0
+resume: auto
+mirror_dir: /content/drive/MyDrive/ankit-llm/checkpoints/t4-full
