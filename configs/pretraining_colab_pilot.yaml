@@ -36,3 +36,7 @@ storage_min_free_gb: 2.0
 resume: auto
 # Persistent storage: every checkpoint is also copied here (atomic .partial -> rename)
 mirror_dir: /content/drive/MyDrive/ankit-llm/checkpoints/t4-pilot
+# Async mirror: copies run on a background thread (a sync 1.27 GB Drive copy
+# took 5-8 min and stalled the GPU loop), coalescing to the newest checkpoint.
+mirror_keep: 2              # newest N .pt files kept in the Drive mirror
+mirror_flush_timeout_s: 1800  # wait this long for the final copy before exiting

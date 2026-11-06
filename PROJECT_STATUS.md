@@ -122,3 +122,29 @@ The user ran the Colab T4 notebook. Results, all measured on hardware:
   Root cause, evidence and fix: **`reports/T4_PILOT_INCIDENT.md`**. Fixed + regression test
   (`52 passed`); existing `t4-pilot` checkpoints remain usable.
 - Full T4 measurements: **`reports/gpu_benchmark_t4_measured.md`**.
+
+## Update 2026-11-06 (later) — session 3 lost its tail; the mirror was the bottleneck
+
+The first genuine long run reached **step 400 (3,276,800 tokens, loss 4.35, 13.2–14.7k tok/s)**
+on the T4 with fp16 / bs16 / seq512, and the resume path was proven on hardware
+(`resumed from checkpoints/t4-pilot/final.pt at step 300`). Then the Colab runtime was
+stopped, which wipes `/content`.
+
+**Durable after the stop (verified by listing Drive, not assumed):** `t4-full/step400.pt`,
+`t4-full/step200.pt`, `t4-pilot/{final,step300,best-step300}.pt`. Nothing newer exists
+anywhere. Steps beyond 400 are unrecoverable.
+
+**Root cause:** the Drive mirror was synchronous and inside the training loop — a 1.27 GB
+copy through the FUSE mount took 5–8 min, while the 200 steps it covered needed ~110 s of
+GPU time. ~80 % of the session went to Drive and the mirror fell many checkpoints behind
+the GPU, so the newest *surviving* checkpoint was far older than the newest *computed* one.
+
+**Fix (this commit):** async coalescing background mirror (`training/mirror.py`), atomic
+`latest.json` pointer written only after a rename, automatic restore from Drive on every
+training entry point, a fast `--mode resume`, `best-step` no longer mirrored, session cap
+5.5 h → 8 h, and an honest median-based pilot trend metric. Verified on CPU: **62 tests
+passed**, `--self-test` PASS, and a new end-to-end test that deletes the local checkpoint
+directory and proves the next run restores from the mirror and resumes at the mirrored step.
+
+**Not yet proven:** the async path has not run on a real T4. Until it does, the throughput
+improvement is a design claim plus a CPU proof, not a measured GPU result.

@@ -35,10 +35,14 @@ num_workers: 0
 log_every: 20
 eval_every: 500
 eval_batches: 8
-save_every: 200             # ~every 1.6M tokens; ~30 s Drive mirror each time
+save_every: 200             # ~every 1.6M tokens; the Drive copy runs in the background
 keep_last_checkpoints: 2
 checkpoint_dir: checkpoints/t4-full
 log_dir: logs
 storage_min_free_gb: 3.0
 resume: auto
 mirror_dir: /content/drive/MyDrive/ankit-llm/checkpoints/t4-full
+# Async mirror: copies run on a background thread (a sync 1.27 GB Drive copy
+# took 5-8 min and stalled the GPU loop), coalescing to the newest checkpoint.
+mirror_keep: 2              # newest N .pt files kept in the Drive mirror
+mirror_flush_timeout_s: 1800  # wait this long for the final copy before exiting

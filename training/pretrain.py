@@ -40,6 +40,7 @@ from training.device import (                               # noqa: E402
     describe_environment, make_grad_scaler, needs_grad_scaler, pick_device, pick_dtype,
 )
 from training.metrics import RunLogger, perplexity          # noqa: E402
+from training.mirror import BackgroundMirror, restore_from_mirror   # noqa: E402
 from training.optimizer import build_optimizer, clip_gradients, set_lr  # noqa: E402
 from training.scheduler import lr_at_step                   # noqa: E402
 
@@ -68,6 +69,27 @@ def evaluate(model: AnkitLM, dataset: PackedTokenDataset, cfg: dict, device: tor
     model.train()
     mean = float(np.mean(losses)) if losses else float("nan")
     return {"val_loss": mean, "val_ppl": perplexity(mean), "val_batches": len(losses)}
+
+
+def _flush_mirror(mirror, cfg: dict) -> None:
+    """Wait for the background Drive copy so the last checkpoint is really on Drive.
+
+    Without this the process can exit - or the runtime can be stopped - while the
+    newest copy is still in flight, and the session's last hours stay on a disk that
+    is about to be wiped.
+    """
+    if mirror is None:
+        return
+    timeout = float(cfg.get("mirror_flush_timeout_s", 1800))
+    t0 = time.time()
+    ok = mirror.close(timeout=timeout)
+    stats = mirror.stats
+    print(f"[pretrain] mirror: {stats['copied']} copied, {stats['coalesced']} superseded, "
+          f"{stats['failed']} failed, {stats['bytes_copied']/1e9:.2f} GB, "
+          f"{time.time()-t0:.0f}s to flush"
+          + ("" if ok else " (WARNING: flush timed out)"))
+    if stats.get("last_error"):
+        print(f"[pretrain] mirror last error: {stats['last_error']}")
 
 
 def main() -> None:
@@ -110,6 +132,15 @@ def main() -> None:
     optimizer = build_optimizer(model, cfg)
     scaler = make_grad_scaler(dtype, device)      # only enabled for fp16 on CUDA
     mirror_dir = cfg.get("mirror_dir") or None
+    # Copies to Drive run on a daemon thread: a 1.27 GB FUSE copy took 5-8 min and
+    # used to stall the GPU loop (that is how the first long run lost its history).
+    mirror = None
+    if mirror_dir:
+        try:
+            mirror = BackgroundMirror(mirror_dir, keep=cfg.get("mirror_keep", 2))
+            print(f"[pretrain] mirroring checkpoints asynchronously to {mirror_dir}")
+        except OSError as exc:
+            print(f"[pretrain] WARNING cannot mirror to {mirror_dir}: {exc} (continuing locally)")
     logger = RunLogger(cfg["log_dir"], cfg["run_name"], run_id)
     env_info = describe_environment()
     print(f"[pretrain] env: {json.dumps(env_info)}")
@@ -129,6 +160,12 @@ def main() -> None:
     resume_mode = args.resume if args.resume is not None else cfg.get("resume", "auto")
     if resume_mode and resume_mode not in ("none", "false"):
         path = Path(resume_mode) if resume_mode not in ("auto",) else resolve_resume(cfg["checkpoint_dir"])
+        if path is None and resume_mode == "auto" and mirror_dir:
+            # a fresh Colab VM has an empty disk: the newest checkpoint is on Drive
+            try:
+                path = restore_from_mirror(mirror_dir, cfg["checkpoint_dir"])
+            except OSError as exc:
+                print(f"[pretrain] mirror restore failed: {exc}")
         if path:
             payload = load_checkpoint(path, map_location=str(device))
             model.load_state_dict(payload["model"])
@@ -218,15 +255,17 @@ def main() -> None:
                 print(f"  [eval] step {step} val_loss={metrics['val_loss']:.4f} "
                       f"val_ppl={metrics['val_ppl']:.2f} best={best_val:.4f}", flush=True)
                 if is_best:
+                    # local only: mirroring best-step too doubled the Drive traffic and
+                    # made the newest *step* checkpoint lag behind even further
                     save_checkpoint(cfg["checkpoint_dir"], f"best-step{step}", model, optimizer, step,
                                     tokens_seen, model_config, cfg, best_val,
                                     extra={"eval": metrics, "run_id": run_id},
-                                    scaler=scaler, mirror_dir=mirror_dir)
+                                    scaler=scaler)
 
             if step % cfg["save_every"] == 0:
                 save_checkpoint(cfg["checkpoint_dir"], f"step{step}", model, optimizer, step,
                                 tokens_seen, model_config, cfg, best_val,
-                                extra={"run_id": run_id}, scaler=scaler, mirror_dir=mirror_dir)
+                                extra={"run_id": run_id}, scaler=scaler, mirror=mirror)
                 pruned = prune_checkpoints(cfg["checkpoint_dir"], cfg["keep_last_checkpoints"])
                 if pruned:
                     logger.log(event="pruned", step=step, removed=pruned)
@@ -242,10 +281,12 @@ def main() -> None:
         crash_path = save_checkpoint(
             cfg["checkpoint_dir"], "crashed", model, optimizer, step, tokens_seen,
             model_config, cfg, best_val,
-            extra={"run_id": run_id, "error": f"{type(exc).__name__}: {exc}"})
+            extra={"run_id": run_id, "error": f"{type(exc).__name__}: {exc}"},
+            scaler=scaler, mirror=mirror)
         logger.log(event="crash", step=step, error=f"{type(exc).__name__}: {exc}",
                    checkpoint=str(crash_path))
         print(f"[pretrain] crashed at step {step}: {exc} -> checkpoint {crash_path}")
+        _flush_mirror(mirror, cfg)
         raise
 
     final_metrics = evaluate(model, val_ds, cfg, device, dtype)
@@ -253,7 +294,7 @@ def main() -> None:
         cfg["checkpoint_dir"], "final", model, optimizer, step, tokens_seen,
         model_config, cfg, final_metrics["val_loss"],
         extra={"eval": final_metrics, "run_id": run_id, "stop_reason": stop_reason},
-        scaler=scaler, mirror_dir=mirror_dir,
+        scaler=scaler, mirror=mirror,
     )
     logger.log(event="end", step=step, tokens_seen=tokens_seen, stop_reason=stop_reason,
                final_val_loss=final_metrics["val_loss"], checkpoint=str(final_path))
@@ -267,6 +308,7 @@ def main() -> None:
     )
     print(f"[pretrain] done: step={step} tokens={tokens_seen:,} "
           f"val_loss={final_metrics['val_loss']:.4f} stop={stop_reason} -> {final_path}")
+    _flush_mirror(mirror, cfg)
 
 
 if __name__ == "__main__":
