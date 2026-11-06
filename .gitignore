@@ -35,3 +35,7 @@ reports/autopilot_config_choice.json
 reports/autopilot_pilot_verification.json
 reports/autopilot_summary.md
 configs/_autogen_*.yaml
+reports/autopilot_error.txt
+reports/autopilot_pilot_attempts.json
+reports/autopilot_train_status.json
+reports/autopilot_resume_test.json
