@@ -72,3 +72,44 @@ def test_resume_restores_optimizer_state(tmp_path, model):
     opt2 = torch.optim.AdamW(model.parameters(), lr=1e-3)
     opt2.load_state_dict(payload["optimizer"])
     assert opt2.state_dict()["state"]
+
+
+def test_save_does_not_mutate_live_optimizer_state(tmp_path, model):
+    """Regression: the T4 crash at step 50 ("cuda:0 and cpu").
+
+    `Optimizer.state_dict()` hands back tensor objects that are shared with the live
+    `optimizer.state`, so an in-place `.cpu()` "portable save" silently pins the Adam
+    moments to the CPU. On a CPU run nothing breaks (everything is CPU already) — on a
+    GPU run the very next optimizer.step() raises "Expected all tensors to be on the
+    same device, but found at least two devices, cuda:0 and cpu".
+
+    We cannot allocate a GPU here, but we *can* catch the mutation: if the save path
+    replaces the live state tensors, their object identity changes.
+    """
+    opt = torch.optim.AdamW(model.parameters(), lr=1e-3)
+    model(torch.randint(0, 128, (2, 16))).logits.sum().backward()
+    opt.step()
+
+    def snapshot(o):
+        return {id(p): [(k, id(v)) for k, v in st.items() if torch.is_tensor(v)]
+                for p, st in o.state.items()}
+
+    before = snapshot(opt)
+    save_checkpoint(tmp_path, "step1", model, opt, 1, 32, CFG, RUN_CFG)
+    after = snapshot(opt)
+
+    assert after == before, "save_checkpoint replaced live optimizer state tensors"
+    # and the saved file must still hold CPU-side copies (portable to a CPU host)
+    payload = load_checkpoint(tmp_path / "step1.pt", with_optimizer=True)
+    for entry in payload["optimizer"]["state"].values():
+        for value in entry.values():
+            if torch.is_tensor(value):
+                assert value.device.type == "cpu"
+
+
+def test_move_optimizer_state_to_is_a_noop_on_cpu(tmp_path, model):
+    from training.checkpoint import move_optimizer_state_to
+    opt = torch.optim.AdamW(model.parameters(), lr=1e-3)
+    model(torch.randint(0, 128, (2, 16))).logits.sum().backward()
+    opt.step()
+    assert move_optimizer_state_to(opt, torch.device("cpu")) == 0

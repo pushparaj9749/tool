@@ -31,7 +31,8 @@ from model.architecture import AnkitLM                      # noqa: E402
 from model.configuration import AnkitConfig                 # noqa: E402
 from tokenizer.ankit_tokenizer import AnkitTokenizer        # noqa: E402
 from training.checkpoint import (                           # noqa: E402
-    list_checkpoints, load_checkpoint, prune_checkpoints, require_free_space,
+    list_checkpoints, load_checkpoint, move_optimizer_state_to, prune_checkpoints,
+    require_free_space,
     resolve_resume, save_checkpoint,
 )
 from training.data_loader import PackedTokenDataset         # noqa: E402
@@ -133,6 +134,9 @@ def main() -> None:
             model.load_state_dict(payload["model"])
             if payload.get("optimizer"):
                 optimizer.load_state_dict(payload["optimizer"])
+                moved = move_optimizer_state_to(optimizer, device)
+                if moved:
+                    print(f"[pretrain] moved {moved} optimizer-state tensors to {device}")
             if scaler.is_enabled() and payload.get("scaler"):
                 scaler.load_state_dict(payload["scaler"])
             start_step = payload["step"]

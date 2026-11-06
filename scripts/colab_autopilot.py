@@ -320,7 +320,8 @@ def stage_eval() -> None:
 
 def stage_summary(choice: Optional[Dict[str, object]],
                   bench: Optional[Dict[str, object]] = None,
-                  pilot: Optional[Dict[str, object]] = None) -> Path:
+                  pilot: Optional[Dict[str, object]] = None,
+                  resume: Optional[Dict[str, object]] = None) -> Path:
     note("summary")
     lines = ["# ANKIT LLM — autopilot session summary", "",
              f"generated: {time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())}",
@@ -473,6 +474,28 @@ def self_test() -> None:
 
 # --------------------------------------------------------------------------- main
 def main() -> None:
+    """Wrap the real work so a crash still leaves evidence on Drive."""
+    try:
+        _main_impl()
+    except BaseException:                                  # noqa: BLE001
+        import traceback
+        tb = traceback.format_exc()
+        print(tb, flush=True)
+        try:
+            REPORTS.mkdir(exist_ok=True)
+            err = REPORTS / "autopilot_error.txt"
+            err.write_text(tb, encoding="utf-8")
+            drive = drive_dir()
+            if drive is not None:
+                (drive / "reports").mkdir(parents=True, exist_ok=True)
+                shutil.copy(err, drive / "reports" / "autopilot_error.txt")
+                print(f"[autopilot] crash log copied to {drive}/reports/autopilot_error.txt")
+        except OSError:
+            pass
+        raise
+
+
+def _main_impl() -> None:
     ap = argparse.ArgumentParser(description="ANKIT LLM one-command Colab autopilot")
     ap.add_argument("--mode", default="all",
                     choices=["all", "prepare", "benchmark", "pilot", "train", "sft", "eval"])
