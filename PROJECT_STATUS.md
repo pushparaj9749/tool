@@ -105,3 +105,20 @@ of them reflect an undertrained model.
 1. A CUDA machine (any of the options in `ENVIRONMENT_REPORT.md` §4) — or authorisation to rent one.
 2. (Optional but important) egress to huggingface.co so the corpus can grow ~100×.
 3. Nothing else: the code, configs and scripts are ready.
+
+## Update 2026-11-06 — first real T4 run (measured, and it found a bug)
+
+The user ran the Colab T4 notebook. Results, all measured on hardware:
+
+- **Benchmark:** 24/24 cells, best **fp16 / bs8 / seq512 = 16,230 tok/s, 5.08 GB peak VRAM,
+  98.7 % GPU util** — **182× the 89 tok/s CPU baseline**, 3.03× fp32 on the same cell.
+- **bf16 is 4.3× slower than fp16 on this T4** (cc 7.5), confirming the dtype logic in
+  `training/device.py`. Auto-selection correctly chose fp16 + GradScaler.
+- **Pilot training:** 15.4k–16.5k tok/s, loss 7.70 → 4.98, val_loss 6.0989 at step 100,
+  checkpoints + Drive mirror written.
+- **Then it crashed** at the first checkpoint boundary: `Expected all tensors to be on the
+  same device ... cuda:0 and cpu`, because `_optimizer_to_cpu()` mutated the live Adam
+  moments while making the checkpoint portable. CPU-only runs could never see it.
+  Root cause, evidence and fix: **`reports/T4_PILOT_INCIDENT.md`**. Fixed + regression test
+  (`52 passed`); existing `t4-pilot` checkpoints remain usable.
+- Full T4 measurements: **`reports/gpu_benchmark_t4_measured.md`**.
