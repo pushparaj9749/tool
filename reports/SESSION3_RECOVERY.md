@@ -101,3 +101,25 @@ T4 par kuch bhi naya measure nahi hua. Measurements jo hain: ~1.7 steps/s, ~7% m
 overhead ⇒ 8 ghante me ~45k steps (~370M tokens). Poora 2B target ≈ 5–6 sessions.
 Aur ek data problem: corpus 24.1M tokens hai, to 2B tokens = ~83 epochs — overfit hoga.
 Isliye ~20–25 epochs (~58k–73k steps) par cap lagana zyada samajhdari hai. Bolo to laga du.
+
+---
+
+# Chunk mode — 60 minute max per run (user's call)
+
+Long sessions are what keep dying. Ab har run **60 minute ka chunk** hai:
+
+- `SESSION_BUDGET_MIN = 60` (notebook) ⇒ autopilot ~**53 min** training + tail for the
+  final eval/save/Drive flush, then `stop=time_budget` and a clean exit.
+- Chunk ke aakhir me: `final.pt` → rolling `latest.pt` on Drive → cell ruk jata hai.
+- Cell khud print karta hai: `CHUNK DONE — step X / 64,000 (Y%)` aur
+  `reports/autopilot_chunk_progress.json` bhi likhta hai.
+- Agla chunk: **wahi Cell 3 dobara chalao** — Drive se newest checkpoint restore hota hai
+  (~20-30 s) aur wahin se training aage.
+- 60 min ≈ **~5,000 steps** ⇒ 64,000 steps ≈ **12–13 chunks**. Ek chunk gaya to sirf
+  60 min gaya, poora din nahi.
+
+**Isliye data Drive par cache hota hai.** Fresh Colab VM par data rebuild (download +
+tokenize) 10–20 min leta hai — 60 min chunk me wo 25% hai. Ab `artifacts/` folder Drive par
+ek baar cache hota hai (tokenizer + 3 bins + SFT = ~50 MB, `manifest.json` ke saath), aur
+naye session me seconds me wapas aata hai. Short/truncated cache detect hone par rebuild
+hota hai (chupchaap galat data se train nahi hota).

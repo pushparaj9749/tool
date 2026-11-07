@@ -85,3 +85,55 @@ def test_plan_epochs_is_honest_about_corpus_reuse(tmp_path):
     assert plan_epochs(shard, 8192, 244141)["epochs"] > 80
     missing = plan_epochs(tmp_path / "nope.bin", 8192, 100)
     assert missing["train_tokens"] == 0 and missing["epochs"] is None
+
+
+def test_artifact_cache_round_trip(tmp_path):
+    """A fresh VM must get the 50 MB of built data from Drive, not rebuild it (~15 min)."""
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from scripts.colab_autopilot import ARTIFACT_FILES, cache_artifacts, restore_artifacts
+
+    root = tmp_path / "vm1"
+    for rel in ARTIFACT_FILES:
+        f = root / rel
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_bytes(b"\x01" * 1024)
+    cache = tmp_path / "drive/artifacts"
+
+    assert cache_artifacts(cache=cache, root=root) == len(ARTIFACT_FILES)
+    assert (cache / "manifest.json").exists()
+    # second run: nothing to do
+    assert cache_artifacts(cache=cache, root=root) == 0
+
+    fresh = tmp_path / "vm2"                       # empty: a new Colab VM
+    restored = restore_artifacts(cache=cache, root=fresh)
+    assert len(restored) == len(ARTIFACT_FILES)
+    for rel in ARTIFACT_FILES:
+        assert (fresh / rel).read_bytes() == b"\x01" * 1024
+    assert not list(fresh.rglob("*.partial"))
+
+
+def test_artifact_cache_rejects_a_short_file(tmp_path):
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from scripts.colab_autopilot import ARTIFACT_FILES, cache_artifacts, restore_artifacts
+
+    root = tmp_path / "vm1"
+    for rel in ARTIFACT_FILES:
+        f = root / rel
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_bytes(b"\x02" * 512)
+    cache = tmp_path / "drive/artifacts"
+    cache_artifacts(cache=cache, root=root)
+    (cache / ARTIFACT_FILES[1]).write_bytes(b"\x02" * 10)      # truncated on Drive
+    assert restore_artifacts(cache=cache, root=tmp_path / "vm2") == []
+
+
+def test_restore_without_cache_is_a_no_op(tmp_path):
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from scripts.colab_autopilot import restore_artifacts
+    assert restore_artifacts(cache=tmp_path / "nothing", root=tmp_path / "vm") == []
