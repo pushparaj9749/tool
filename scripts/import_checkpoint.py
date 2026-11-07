@@ -222,14 +222,70 @@ def copy_server_side(api, file_id: str, name: str, dest_folder_id: str) -> Dict[
                             fields="id,name,size,modifiedTime").execute()
 
 
-def download_to(path: Path, file_id: str) -> None:
-    """curl the public file; `confirm=t` is what large Drive files need."""
-    url = f"https://drive.google.com/uc?export=download&id={file_id}&confirm=t"
-    print(f"[import] downloading {url}", flush=True)
-    r = subprocess.run(["curl", "-L", "--fail", "--retry", "3", "-o", str(path), url],
+# Drive serves anything over ~100 MB as an HTML interstitial if you ask the old way, so a
+# "successful" curl can still hand you 2 KB of HTML. Best-first, and every attempt is
+# verified by size before it is trusted.
+DOWNLOAD_URLS = [
+    "https://drive.usercontent.google.com/download?id={id}&export=download&confirm=t",
+    "https://drive.google.com/uc?export=download&id={id}&confirm=t",
+]
+MIN_BYTES = 100 * 1024 * 1024
+
+
+def looks_like_html(path: Path) -> bool:
+    try:
+        head = path.open("rb").read(512).lstrip().lower()
+    except OSError:
+        return True
+    return head.startswith(b"<!doctype html") or head.startswith(b"<html")
+
+
+def _curl(url: str, path: Path) -> subprocess.CompletedProcess:
+    return subprocess.run(["curl", "-L", "--fail", "--retry", "3", "--continue-at", "-",
+                           "-A", "Mozilla/5.0", "-o", str(path), url],
+                          capture_output=True, text=True)
+
+
+def _gdown(path: Path, file_id: str) -> bool:
+    """gdown solves the confirm-token dance properly; use it when it is available."""
+    cmd = [sys.executable, "-m", "gdown", "--id", file_id, "-O", str(path)]
+    r = subprocess.run(cmd, capture_output=True, text=True)
+    if r.returncode != 0 and "No module named gdown" in (r.stderr or ""):
+        print("[import] gdown install kar raha hoon…", flush=True)
+        subprocess.run([sys.executable, "-m", "pip", "install", "-q", "gdown"],
                        capture_output=True, text=True)
-    if r.returncode != 0:
-        raise SystemExit(f"download failed ({r.returncode}): {r.stderr[-400:]}")
+        r = subprocess.run(cmd, capture_output=True, text=True)
+    return r.returncode == 0
+
+
+def download_to(path: Path, file_id: str, min_bytes: int = MIN_BYTES) -> None:
+    """Fetch a public Drive file, verifying size — an HTML page is not a checkpoint."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    notes = []
+    for template in DOWNLOAD_URLS:
+        url = template.format(id=file_id)
+        print(f"[import] downloading {url}", flush=True)
+        r = _curl(url, path)
+        size = path.stat().st_size if path.exists() else 0
+        if r.returncode == 0 and size >= min_bytes and not looks_like_html(path):
+            print(f"[import] got {size/1e9:.2f} GB", flush=True)
+            return
+        notes.append(f"{url.split('?')[0]} -> rc={r.returncode}, {size/1024:.0f} KB"
+                     f"{' (HTML page)' if path.exists() and looks_like_html(path) else ''}")
+        path.unlink(missing_ok=True)
+
+    print("[import] curl ne poora file nahi diya, gdown try kar raha hoon…", flush=True)
+    if _gdown(path, file_id) and path.exists() and path.stat().st_size >= min_bytes:
+        print(f"[import] gdown got {path.stat().st_size/1e9:.2f} GB", flush=True)
+        return
+    path.unlink(missing_ok=True)
+    raise SystemExit(
+        "download fail: Google ne file ke bajaye HTML/adhoora page bheja.\n  " + "\n  ".join(notes)
+        + "\nIse aise karo (Colab me sabse pakka):\n"
+          f"  !pip install -q gdown && gdown --id {file_id} -O {path}\n"
+          "Agar gdown bhi fail ho: Drive me file kholo -> Download (browser se) -> phir Colab me "
+          "Files panel se upload karo, ya folder ko is account ke saath share karke "
+          "--method copy chalao.")
 
 
 # ------------------------------------------------------------------ main
@@ -322,12 +378,9 @@ def main() -> None:
             "     python scripts/import_checkpoint.py --method copy\n"
             "  3) kaam nahi kar raha to: python scripts/import_checkpoint.py --method copy --file '<folder link>'\n"
             "     (folder link se newest stepNNNN.pt khud chun lega)")
-    tmp = Path("/content/_import") / f"step_download.pt"
-    tmp.parent.mkdir(parents=True, exist_ok=True)
-    download_to(tmp, src_id)
+    tmp = Path("/content/_import") / "step_download.pt"
+    download_to(tmp, src_id)              # raises with instructions if it is not a file
     size = tmp.stat().st_size
-    if size < 100 * 1024 * 1024:
-        raise SystemExit(f"downloaded file is only {size/1e6:.1f} MB — link probably not public")
     name = f"step{args.step}.pt" if args.step else "latest.pt"
     print(f"[import] saving as {name} (pointer step {step_of(name)})", flush=True)
     dest = install_local(tmp, target, sidecar=None)
