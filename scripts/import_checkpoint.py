@@ -128,9 +128,37 @@ def already_present(target_dir: Path) -> Optional[Path]:
 
 
 # ------------------------------------------------------------------ Drive API paths
+SCOPES = ["https://www.googleapis.com/auth/drive"]
+
+
+def credentials():
+    """A real *user* credential for this Colab account.
+
+    Without this, `build("drive", "v3")` falls back to Application Default Credentials,
+    which on Colab means asking the GCE metadata server and dying with:
+
+        google.auth.exceptions.RefreshError: Failed to retrieve
+        http://metadata.google.internal/... Status: 404
+
+    So: authenticate as the signed-in user first (a popup the first time only), then take
+    `google.auth.default()`, which returns those credentials.
+    """
+    try:
+        from google.colab import auth as colab_auth       # noqa: PLC0415
+        colab_auth.authenticate_user()
+    except Exception:                                     # noqa: BLE001
+        pass                                              # not Colab: ADC is the right answer
+    import google.auth                                    # noqa: PLC0415
+    creds, _ = google.auth.default(scopes=SCOPES)
+    return creds
+
+
 def _api():
-    from googleapiclient.discovery import build  # noqa: PLC0415
-    return build("drive", "v3")
+    """Drive v3 client with a working credential and a real socket timeout."""
+    import httplib2                                       # noqa: PLC0415
+    from googleapiclient.discovery import build           # noqa: PLC0415
+    http = httplib2.Http(timeout=300)       # also silences the per-request timeout warning
+    return build("drive", "v3", http=credentials().authorize(http), cache_discovery=False)
 
 
 def _whoami(api) -> str:
@@ -237,16 +265,29 @@ def main() -> None:
     src_id = parse_file_id(args.file)
     if args.method in ("auto", "copy") and api is not None:
         source = None
-        if src_id:
-            source = resolve_source(api, src_id, args.step)
-        else:
-            source = find_shared(api, args.step)
+        try:
+            if src_id:
+                source = resolve_source(api, src_id, args.step)
+            else:
+                source = find_shared(api, args.step)
+        except Exception as exc:                        # noqa: BLE001
+            # auth/quota/network trouble must not hide the working path
+            print(f"[import] Drive API search failed: {type(exc).__name__}: {exc}", flush=True)
+            print("[import] falling back — use --method download with a public link",
+                  flush=True)
+            source = None
         if source:
             name = str(source.get("name") or "checkpoint.pt")
             if not name.endswith(".pt"):
                 name += ".pt"
             print(f"[import] source: {name} ({int(source.get('size') or 0)/1e9:.2f} GB)", flush=True)
-            dest_id = _ensure_folder(api, args.subdir)
+            try:
+                dest_id = _ensure_folder(api, args.subdir)
+            except Exception as exc:                    # noqa: BLE001
+                raise SystemExit(
+                    f"apni Drive me folder nahi ban paya: {type(exc).__name__}: {exc}\n"
+                    "Ye tab hota hai jab Drive API ka scope/permission adhoora ho. "
+                    "--method download se ye bypass ho jata hai.")
             print("[import] copying server-side (no download)…", flush=True)
             copied = copy_server_side(api, source["id"], name, dest_id)
             size = int(copied.get("size") or 0)
@@ -273,11 +314,14 @@ def main() -> None:
     # fallback: plain download of a public file
     if not src_id:
         raise SystemExit(
-            "koi source nahi mila. Do me se ek karo:\n"
-            "  1) purane account se ye folder share karo (Editor/Viewer) is account ke saath, phir\n"
+            "koi source nahi mila. 3 me se koi ek karo:\n"
+            "  1) purane account me file -> Share -> 'Anyone with the link' -> Copy link, phir\n"
+            "     python scripts/import_checkpoint.py --method download --file '<link>' --step 5800\n"
+            "     (asli download, ~1-3 min; Drive API ki zarurat nahi — sabse pakka raasta)\n"
+            "  2) purane account se folder is account ke saath share (Viewer) -> email accept ->\n"
             "     python scripts/import_checkpoint.py --method copy\n"
-            "  2) ya file ka link 'anyone with the link' karke:\n"
-            "     python scripts/import_checkpoint.py --method download --file '<link or id>'")
+            "  3) kaam nahi kar raha to: python scripts/import_checkpoint.py --method copy --file '<folder link>'\n"
+            "     (folder link se newest stepNNNN.pt khud chun lega)")
     tmp = Path("/content/_import") / f"step_download.pt"
     tmp.parent.mkdir(parents=True, exist_ok=True)
     download_to(tmp, src_id)
@@ -285,6 +329,7 @@ def main() -> None:
     if size < 100 * 1024 * 1024:
         raise SystemExit(f"downloaded file is only {size/1e6:.1f} MB — link probably not public")
     name = f"step{args.step}.pt" if args.step else "latest.pt"
+    print(f"[import] saving as {name} (pointer step {step_of(name)})", flush=True)
     dest = install_local(tmp, target, sidecar=None)
     print(f"[import] installed {dest} ({dest.stat().st_size/1e9:.2f} GB)", flush=True)
     done(dest.name, step_of(dest.name))
