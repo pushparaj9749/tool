@@ -124,3 +124,33 @@ isliye **recommended raasta wahi server-side copy hai**, jo har case me chalta h
 - [ ] `python scripts/import_checkpoint.py --method copy` → `READY — … step 5800`
 - [ ] `python notebooks/TRY_MODEL.py --chat` (optional, model test)
 - [ ] `python notebooks/PASTE_ONE_CELL.py --budget-min 60` → chunk chalu
+
+---
+
+## Agar Drive API auth fail ho jaye (`metadata.google.internal … 404`)
+
+Pehli koshish me yahi hua: `googleapiclient` ne Application Default Credentials use kiye, aur
+Colab par wo GCE metadata server se poochhta hai — jo 404 deta hai:
+
+```
+google.auth.exceptions.RefreshError: Failed to retrieve
+http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/ … 404
+```
+
+Ab script khud `google.colab.auth.authenticate_user()` call karta hai aur `google.auth.default
+(scopes=[drive])` se **user credential** leta hai, isliye dobara chalane par ye error nahi
+aayega (pehli baar ek permission popup khulega — Allow dabana).
+
+Phir bhi API na chale to **sabse pakka raasta** hai public link se download — usme Drive API
+bilkul nahi lagti:
+
+1. Purane account me `step5800.pt` par right-click → **Share** → **Anyone with the link**
+   → role **Viewer** → **Copy link**
+2. Naye account ke Colab me:
+
+```python
+!python scripts/import_checkpoint.py --method download --file '<link>' --step 5800
+```
+
+Ye asli download hai (~1.27 GB, 1–3 min), phir naye account ki Drive me wahi layout ban jata hai
+(`step5800.pt` + `latest.json`). Uske baad `PASTE_ONE_CELL.py` normally chalega.

@@ -9,6 +9,8 @@ layout `newest_mirrored_checkpoint()` expects.
 import sys
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from scripts.import_checkpoint import (already_present, install_local, parse_file_id,  # noqa: E402
@@ -93,3 +95,53 @@ def test_drive_root_honours_the_env_override(monkeypatch, tmp_path):
     assert mod.drive_root() == tmp_path / "shared"
     monkeypatch.delenv("ANKIT_DRIVE_DIR")
     assert str(mod.drive_root()).endswith("MyDrive/ankit-llm")
+
+
+def test_download_uses_the_large_file_url(tmp_path, monkeypatch):
+    """Drive shows a virus-scan page for big files unless `confirm=t` is set."""
+    import subprocess as sp
+    import scripts.import_checkpoint as mod
+
+    seen = {}
+
+    def fake_run(cmd, **kw):
+        seen["cmd"] = cmd
+        out = Path(cmd[cmd.index("-o") + 1])
+        out.write_bytes(b"\x00" * 2048)
+        return sp.CompletedProcess(cmd, 0, "", "")
+
+    monkeypatch.setattr(mod.subprocess, "run", fake_run)
+    dest = tmp_path / "step5800.pt"
+    mod.download_to(dest, "1oDzf81qpoOlhNEobd6QRS7xTfHuL5Vwf")
+    url = seen["cmd"][-1]
+    assert "confirm=t" in url
+    assert "id=1oDzf81qpoOlhNEobd6QRS7xTfHuL5Vwf" in url
+    assert dest.exists() and dest.stat().st_size == 2048
+
+
+def test_auth_failure_points_at_the_download_method(tmp_path, monkeypatch, capsys):
+    """The Colab ADC/metadata 404 must end in instructions, not a traceback."""
+    import scripts.import_checkpoint as mod
+
+    def boom():
+        raise RuntimeError("Failed to retrieve http://metadata.google.internal/... 404")
+
+    monkeypatch.setattr(mod, "_api", boom)
+    monkeypatch.setattr(mod, "drive_root", lambda: tmp_path / "MyDrive/ankit-llm")
+    monkeypatch.setattr(mod.sys, "argv", ["import_checkpoint.py", "--method", "auto"])
+    with pytest.raises(SystemExit) as exc:
+        mod.main()
+    msg = str(exc.value)
+    assert "--method download" in msg and "Anyone with the link" in msg
+    out = capsys.readouterr().out
+    assert "Drive API unavailable" in out
+
+
+def test_credentials_are_requested_with_drive_scope(monkeypatch):
+    """Without an explicit user credential, googleapiclient asks the GCE metadata server."""
+    import scripts.import_checkpoint as mod
+    assert mod.SCOPES == ["https://www.googleapis.com/auth/drive"]
+    src = (Path(__file__).resolve().parents[1] / "scripts/import_checkpoint.py").read_text(
+        encoding="utf-8")
+    assert "colab.auth" in src or "colab_auth" in src
+    assert "google.auth.default(scopes=SCOPES)" in src
