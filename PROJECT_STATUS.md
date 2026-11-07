@@ -123,28 +123,35 @@ The user ran the Colab T4 notebook. Results, all measured on hardware:
   (`52 passed`); existing `t4-pilot` checkpoints remain usable.
 - Full T4 measurements: **`reports/gpu_benchmark_t4_measured.md`**.
 
-## Update 2026-11-06 (later) — session 3 lost its tail; the mirror was the bottleneck
+## Update 2026-11-06 (later) — session 3 stopped at step 400, silently
 
-The first genuine long run reached **step 400 (3,276,800 tokens, loss 4.35, 13.2–14.7k tok/s)**
-on the T4 with fp16 / bs16 / seq512, and the resume path was proven on hardware
-(`resumed from checkpoints/t4-pilot/final.pt at step 300`). Then the Colab runtime was
-stopped, which wipes `/content`.
+The first genuine long run reached **step 400 (3,276,800 tokens, loss 4.3542, 13.7k tok/s)**
+and the resume path was proven on hardware. Then **everything stopped being written to
+Drive at 11:23:35Z**: the last checkpoint, the last log line
+(`step 400 loss=4.3542 ... eta=2437.0m`) and the summary all end at the same instant. The
+long run had only been alive 4.3 minutes.
 
-**Durable after the stop (verified by listing Drive, not assumed):** `t4-full/step400.pt`,
-`t4-full/step200.pt`, `t4-pilot/{final,step300,best-step300}.pt`. Nothing newer exists
-anywhere. Steps beyond 400 are unrecoverable.
+**Survived (verified by listing Drive):** `t4-full/{step200,step400}.pt`,
+`t4-pilot/{final,step300,best-step300}.pt`. The "~5,520 steps" reported afterwards has no
+artefact behind it; if the GPU did run on, it ran with zero durability — which is the bug.
 
-**Root cause:** the Drive mirror was synchronous and inside the training loop — a 1.27 GB
-copy through the FUSE mount took 5–8 min, while the 200 steps it covered needed ~110 s of
-GPU time. ~80 % of the session went to Drive and the mirror fell many checkpoints behind
-the GPU, so the newest *surviving* checkpoint was far older than the newest *computed* one.
+**Correction:** an earlier entry blamed the mirror for ~80 % of wall time. That was wrong.
+`step200.json`→`step400.json` `created_at` is 129.0 s for 200 steps against 111.5 s of pure
+compute, so a 1.27 GB copy costs **~17 s (~7 %)**, and the log's own 240 s at step 400
+agrees. Copies were fast; the mirror was never the bottleneck.
 
-**Fix (this commit):** async coalescing background mirror (`training/mirror.py`), atomic
-`latest.json` pointer written only after a rename, automatic restore from Drive on every
-training entry point, a fast `--mode resume`, `best-step` no longer mirrored, session cap
-5.5 h → 8 h, and an honest median-based pilot trend metric. Verified on CPU: **62 tests
-passed**, `--self-test` PASS, and a new end-to-end test that deletes the local checkpoint
-directory and proves the next run restores from the mirror and resumes at the mirrored step.
+**Two real bugs, both fixed:** (1) silent failure — no heartbeat, no watchdog, one warning
+line per failed copy, so a run can persist nothing while the console prints healthy losses;
+(2) the mirror leaked Drive quota, because pruning a checkpoint on a Drive mount only moves
+it to the **trash**, which still counts — 16 trashed 1.27 GB checkpoints (~20.3 GB) are
+sitting there now, and a full 244,141-step run would have leaked ~1.5 TB.
 
-**Not yet proven:** the async path has not run on a real T4. Until it does, the throughput
-improvement is a design claim plus a CPU proof, not a measured GPU result.
+**Fix:** one rolling `latest.pt` (overwrite, never prune), `heartbeat.json` every 100 steps,
+a watchdog that shouts when the mirror falls >600 steps behind or goes 30 min without a
+successful copy, retries with backoff, size verification after rename, a preflight write
+probe, and a restore path that reports "heartbeat says step X, newest checkpoint is step Y".
+Verified on CPU: **71 tests passed**, `--self-test` PASS, restore e2e PASS, dead-mirror drill
+PASS (training exits 0, heartbeat still lands, alarm printed).
+
+**Not yet proven:** none of it has run on a real T4. `reports/T4_PILOT_INCIDENT.md`
+(Session 3) and `reports/SESSION3_RECOVERY.md` hold the full reconstruction.

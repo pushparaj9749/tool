@@ -35,6 +35,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 LATEST_NAME = "latest.json"
+LATEST_CKPT_NAME = "latest.pt"      # one rolling file: overwritten, never pruned
 
 
 def _log(msg: str) -> None:
@@ -52,10 +53,15 @@ class BackgroundMirror:
     """
 
     def __init__(self, mirror_dir: str | Path, keep: int = 2,
-                 slow_warn_s: float = 180.0) -> None:
+                 slow_warn_s: float = 180.0, max_retries: int = 2,
+                 retry_delay_s: float = 12.0) -> None:
         self.mirror = Path(mirror_dir)
         self.keep = max(1, int(keep))
         self.slow_warn_s = float(slow_warn_s)
+        self.max_retries = max(0, int(max_retries))
+        self.retry_delay_s = float(retry_delay_s)
+        self.last_ok_at: Optional[float] = None
+        self.last_ok_step = -1
         self._cv = threading.Condition()
         self._pending: Optional[tuple] = None
         self._busy = False
@@ -66,6 +72,7 @@ class BackgroundMirror:
             "copied": 0,
             "coalesced": 0,          # superseded before the copy even started
             "failed": 0,
+            "retried": 0,
             "bytes_copied": 0,
             "seconds_copying": 0.0,
             "last_error": None,
@@ -73,6 +80,13 @@ class BackgroundMirror:
             "last_tag": None,
         }
         self.mirror.mkdir(parents=True, exist_ok=True)
+        # a .partial left behind by a killed runtime is useless and costs Drive quota
+        for stale in self.mirror.glob(".*.partial"):
+            try:
+                stale.unlink()
+                _log(f"removed stale partial {stale.name}")
+            except OSError:
+                pass
         self._thread = threading.Thread(target=self._run, name="ckpt-mirror", daemon=True)
         self._thread.start()
 
@@ -138,38 +152,54 @@ class BackgroundMirror:
                 self._busy = True
             ckpt, sidecar, step = job
             t0 = time.time()
-            missing = False
-            try:
-                self._copy(ckpt, sidecar, step)
-            except FileNotFoundError:
-                # the local checkpoint was pruned before we got to it: the newer
-                # checkpoint that caused the prune is what matters, so this is
-                # supersession, not failure
-                missing = True
-                self.stats["coalesced"] += 1
-            except BaseException as exc:                     # noqa: BLE001
-                self.stats["failed"] += 1
-                self.stats["last_error"] = f"{type(exc).__name__}: {exc}"
-                _log(f"WARNING copy of {ckpt.name} failed: {type(exc).__name__}: {exc}")
-            finally:
-                dt = time.time() - t0
-                with self._cv:
-                    self._busy = False
-                    self.stats["seconds_copying"] += dt
-                    self.stats["last_copy_s"] = round(dt, 1)
-                    self._cv.notify_all()
-                if not missing and dt > self.slow_warn_s:
-                    try:
-                        size = ckpt.stat().st_size / 1e9
-                    except OSError:
-                        size = float("nan")
-                    _log(f"slow copy: {ckpt.name} took {dt/60:.1f} min ({size:.2f} GB)")
+            superseded = False
+            attempt = 0
+            while True:
+                attempt += 1
+                try:
+                    self._copy(ckpt, sidecar, step)
+                    break
+                except FileNotFoundError:
+                    # the local checkpoint was pruned before we reached it: the newer
+                    # checkpoint that caused the prune is what matters. Not a failure.
+                    superseded = True
+                    self.stats["coalesced"] += 1
+                    break
+                except BaseException as exc:                 # noqa: BLE001
+                    if attempt <= self.max_retries:
+                        delay = self.retry_delay_s * attempt
+                        self.stats["retried"] += 1
+                        _log(f"copy of {ckpt.name} failed (attempt {attempt}): "
+                             f"{type(exc).__name__}: {exc} — retrying in {delay:.0f}s")
+                        time.sleep(delay)
+                        continue
+                    self.stats["failed"] += 1
+                    self.stats["last_error"] = f"{type(exc).__name__}: {exc}"
+                    _log(f"MIRROR FAILED for {ckpt.name} after {attempt} attempt(s): "
+                         f"{type(exc).__name__}: {exc}. Training continues, but this "
+                         f"checkpoint is NOT on Drive.")
+                    break
+            dt = time.time() - t0
+            with self._cv:
+                self._busy = False
+                self.stats["seconds_copying"] += dt
+                self.stats["last_copy_s"] = round(dt, 1)
+                self._cv.notify_all()
+            if not superseded and dt > self.slow_warn_s:
+                try:
+                    size = ckpt.stat().st_size / 1e9
+                except OSError:
+                    size = float("nan")
+                _log(f"slow copy: {ckpt.name} took {dt/60:.1f} min ({size:.2f} GB)")
 
     def _copy(self, ckpt: Path, sidecar: Path, step: int) -> Path:
         self.mirror.mkdir(parents=True, exist_ok=True)
         tag = ckpt.stem
-        dest = self.mirror / ckpt.name
-        tmp = self.mirror / f".{tag}.pt.partial"
+        # ONE rolling file, overwritten each time. Step-tagged copies looked tidier
+        # but every prune moves a 1.27 GB file into the Drive trash, and trash counts
+        # against the quota: a few hundred saves would have leaked hundreds of GB.
+        dest = self.mirror / LATEST_CKPT_NAME
+        tmp = self.mirror / f".{LATEST_CKPT_NAME}.partial"
         # .partial -> rename so a runtime kill mid-copy can never leave a truncated
         # file that looks like a valid checkpoint
         shutil.copyfile(ckpt, tmp)
@@ -178,30 +208,47 @@ class BackgroundMirror:
         if got != expected:
             tmp.unlink(missing_ok=True)
             raise IOError(f"short copy for {tag}: {got} != {expected} bytes")
-        if sidecar.exists():
-            shutil.copyfile(sidecar, self.mirror / sidecar.name)
         os.replace(tmp, dest)
+        try:
+            meta = json.loads(sidecar.read_text(encoding="utf-8")) if sidecar.exists() else {}
+        except ValueError:
+            meta = {}
         latest = {
             "tag": tag,
             "file": dest.name,
             "step": step,
             "bytes": expected,
             "mirrored_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            # the sidecar's own fields (sha256, tokens_seen, created_at) so a restore
+            # can still verify and name the file correctly
+            "sha256": meta.get("sha256"),
+            "tokens_seen": meta.get("tokens_seen"),
+            "created_at": meta.get("created_at"),
         }
         pointer = self.mirror / LATEST_NAME
         tmp_pointer = self.mirror / f".{LATEST_NAME}.partial"
         tmp_pointer.write_text(json.dumps(latest, indent=2) + "\n", encoding="utf-8")
         os.replace(tmp_pointer, pointer)
+        landed = dest.stat().st_size
+        if landed != expected:                       # FUSE can lie about a rename
+            dest.unlink(missing_ok=True)
+            raise IOError(f"mirrored file is {landed} bytes, expected {expected}")
         with self._cv:
             self.stats["copied"] += 1
             self.stats["bytes_copied"] += expected
             self.stats["last_tag"] = tag
-        self._prune(protected=dest.name)
-        _log(f"mirrored {dest.name} ({expected/1e9:.2f} GB, step {step})")
+            self.last_ok_at = time.time()
+            self.last_ok_step = max(self.last_ok_step, int(step or 0))
+        _log(f"mirrored {tag} -> {dest.name} ({expected/1e9:.2f} GB, step {step})")
         return dest
 
     def _prune(self, protected: Optional[str] = None) -> None:
-        """Keep only the newest ``keep`` .pt files in the mirror directory."""
+        """Legacy helper, no longer called.
+
+        Pruning through a Drive FUSE mount only moves files to the trash, which still
+        counts against the quota - so the mirror now overwrites one rolling file
+        instead of deleting old step-tagged ones.
+        """
         try:
             files = sorted(self.mirror.glob("*.pt"), key=lambda p: p.stat().st_mtime)
         except OSError:
@@ -216,12 +263,91 @@ class BackgroundMirror:
                     _log(f"could not prune {path.name}: {exc}")
 
 
+    def health(self, step: Optional[int] = None) -> Dict[str, Any]:
+        """What the mirror is actually doing - the thing that was missing when a run
+        kept training while silently persisting nothing."""
+        with self._cv:
+            age = None if self.last_ok_at is None else round(time.time() - self.last_ok_at, 1)
+            return {
+                "copied": self.stats["copied"],
+                "failed": self.stats["failed"],
+                "retried": self.stats["retried"],
+                "coalesced": self.stats["coalesced"],
+                "last_ok_step": self.last_ok_step,
+                "last_ok_age_s": age,
+                # while nothing has ever landed, "behind" is measured from step 0, so
+                # a run that never mirrors (the failure that lost last session's tail)
+                # still trips the watchdog instead of looking healthy
+                "steps_behind": (None if step is None
+                                 else int(step) - max(self.last_ok_step, 0)),
+                "busy": self._busy,
+                "pending": self._pending is not None,
+                "last_error": self.stats["last_error"],
+            }
+
+
+# --------------------------------------------------------- heartbeat / preflight
+HEARTBEAT_NAME = "heartbeat.json"
+
+
+def write_heartbeat(mirror_dir: str | Path, payload: Dict[str, Any],
+                   mirror: Optional["BackgroundMirror"] = None) -> bool:
+    """Tiny file on the mirror telling us how far training really got.
+
+    A checkpoint is 1.27 GB and can fail for a dozen reasons; a 400-byte heartbeat
+    usually still lands and answers the question that cost the last session its
+    tail: "the GPU ran - did anything get saved?" Never raises.
+    """
+    if not mirror_dir:
+        return False
+    try:
+        target = Path(mirror_dir)
+        target.mkdir(parents=True, exist_ok=True)
+        body = dict(payload)
+        body["updated_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        if mirror is not None:
+            body["mirror"] = mirror.health(step=payload.get("step"))
+        tmp = target / f".{HEARTBEAT_NAME}.partial"
+        tmp.write_text(json.dumps(body, indent=2) + "\n", encoding="utf-8")
+        os.replace(tmp, target / HEARTBEAT_NAME)
+        return True
+    except OSError as exc:
+        print(f"[mirror] WARNING heartbeat write failed: {exc}", flush=True)
+        return False
+
+
+def read_heartbeat(mirror_dir: str | Path) -> Optional[Dict[str, Any]]:
+    path = Path(mirror_dir) / HEARTBEAT_NAME
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+
+
+def probe_dir(mirror_dir: str | Path, label: str = "probe") -> tuple[bool, str]:
+    """Can we actually write to the mirror right now? Cheap and explicit."""
+    if not mirror_dir:
+        return False, "no mirror configured"
+    try:
+        target = Path(mirror_dir)
+        target.mkdir(parents=True, exist_ok=True)
+        probe = target / f".{label}.probe"
+        probe.write_text(time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), encoding="utf-8")
+        probe.unlink()
+        return True, "ok"
+    except OSError as exc:
+        return False, f"{type(exc).__name__}: {exc}"
+
+
 # ---------------------------------------------------------------- resume helpers
 def newest_mirrored_checkpoint(mirror_dir: str | Path) -> Optional[Path]:
     """Path of the newest *complete* mirrored checkpoint, or None.
 
-    Trusts ``latest.json`` (written only after a rename) and falls back to the
-    highest-step sidecar found in the directory.
+    Trusts ``latest.json`` (written only after a rename, with the byte count) and
+    falls back to the highest-step sidecar found in the directory, so checkpoints
+    mirrored by an older build are still resumable.
     """
     mirror = Path(mirror_dir)
     if not mirror.exists():
@@ -230,10 +356,10 @@ def newest_mirrored_checkpoint(mirror_dir: str | Path) -> Optional[Path]:
     if pointer.exists():
         try:
             meta = json.loads(pointer.read_text(encoding="utf-8"))
-            candidate = mirror / meta["file"]
-            if candidate.exists() and candidate.stat().st_size == int(meta.get("bytes", 0)):
+            candidate = mirror / meta.get("file", LATEST_CKPT_NAME)
+            if candidate.exists() and candidate.stat().st_size == int(meta.get("bytes", -1)):
                 return candidate
-        except (OSError, ValueError, KeyError):
+        except (OSError, ValueError, KeyError, TypeError):
             pass
     best: Optional[tuple] = None
     for sidecar in mirror.glob("*.json"):
@@ -261,36 +387,40 @@ def restore_from_mirror(mirror_dir: str | Path, ckpt_dir: str | Path) -> Optiona
     """Copy the newest mirrored checkpoint into ``ckpt_dir`` and repoint latest.json.
 
     A fresh Colab VM has an empty local disk, so ``--resume auto`` (which looks at
-    ``<ckpt_dir>/latest.json``) needs exactly this. The sidecar's ``path`` field is
-    rewritten to the local path, because the Drive copy still records the absolute
-    path of the session that wrote it.
+    ``<ckpt_dir>/latest.json``) needs exactly this. The stored sidecar's ``path`` is
+    rewritten to the local path, because the Drive copy still records the location of
+    the session that wrote it.
     """
     src = newest_mirrored_checkpoint(mirror_dir)
     if src is None:
         return None
+    meta: Dict[str, Any] = {}
+    for candidate in (Path(mirror_dir) / LATEST_NAME, src.with_suffix(".json")):
+        if candidate.exists():
+            try:
+                meta = json.loads(candidate.read_text(encoding="utf-8"))
+                break
+            except (OSError, ValueError):
+                meta = {}
+    tag = str(meta.get("tag") or src.stem)
     ckpt_dir = Path(ckpt_dir)
     ckpt_dir.mkdir(parents=True, exist_ok=True)
-    dest = ckpt_dir / src.name
-    tmp = ckpt_dir / f".{src.stem}.pt.partial"
+    dest = ckpt_dir / f"{tag}.pt"
+    tmp = ckpt_dir / f".{tag}.pt.partial"
     shutil.copyfile(src, tmp)
     if tmp.stat().st_size != src.stat().st_size:
         tmp.unlink(missing_ok=True)
         raise IOError(f"short copy while restoring {src.name}")
     os.replace(tmp, dest)
-    sidecar_src = src.with_suffix(".json")
-    sidecar: Dict[str, Any] = {}
-    if sidecar_src.exists():
-        try:
-            sidecar = json.loads(sidecar_src.read_text(encoding="utf-8"))
-        except ValueError:
-            sidecar = {}
-    sidecar.update({"path": str(dest.resolve()),
+    sidecar = dict(meta)
+    sidecar.update({"tag": tag, "path": str(dest.resolve()),
+                    "bytes": dest.stat().st_size,
                     "restored_from": str(src),
                     "restored_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())})
-    if "bytes" not in sidecar:
-        sidecar["bytes"] = dest.stat().st_size
-    (ckpt_dir / f"{src.stem}.json").write_text(json.dumps(sidecar, indent=2) + "\n",
-                                               encoding="utf-8")
+    sidecar.pop("file", None)
+    sidecar.pop("mirrored_at", None)
+    (ckpt_dir / f"{tag}.json").write_text(json.dumps(sidecar, indent=2) + "\n",
+                                          encoding="utf-8")
     (ckpt_dir / LATEST_NAME).write_text(json.dumps(sidecar, indent=2) + "\n", encoding="utf-8")
-    _log(f"restored {src.name} (step {sidecar.get('step')}) -> {dest}")
+    _log(f"restored {src.name} (tag {tag}, step {sidecar.get('step')}) -> {dest}")
     return dest

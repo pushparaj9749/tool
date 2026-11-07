@@ -40,7 +40,9 @@ from training.device import (                               # noqa: E402
     describe_environment, make_grad_scaler, needs_grad_scaler, pick_device, pick_dtype,
 )
 from training.metrics import RunLogger, perplexity          # noqa: E402
-from training.mirror import BackgroundMirror, restore_from_mirror   # noqa: E402
+from training.mirror import (                                # noqa: E402
+    BackgroundMirror, read_heartbeat, restore_from_mirror, write_heartbeat,
+)
 from training.optimizer import build_optimizer, clip_gradients, set_lr  # noqa: E402
 from training.scheduler import lr_at_step                   # noqa: E402
 
@@ -71,6 +73,49 @@ def evaluate(model: AnkitLM, dataset: PackedTokenDataset, cfg: dict, device: tor
     return {"val_loss": mean, "val_ppl": perplexity(mean), "val_batches": len(losses)}
 
 
+def _watch_mirror(mirror, step: int, cfg: dict) -> None:
+    """Shout if training is outrunning what is actually persisted.
+
+    The previous session kept training while every checkpoint silently failed to
+    reach Drive: the only trace was one warning line in a 21 KB log, and when the
+    runtime stopped nobody could tell how far the model had got. This watchdog is
+    the missing signal.
+    """
+    if mirror is None:
+        return
+    h = mirror.health(step=step)
+    max_lag = int(cfg.get("mirror_max_lag_steps", 3 * int(cfg.get("save_every", 200))))
+    max_age = float(cfg.get("mirror_max_age_s", 1800))
+    lagged = h["steps_behind"] is not None and h["steps_behind"] > max_lag
+    stale = h["last_ok_age_s"] is not None and h["last_ok_age_s"] > max_age
+    never = h["copied"] == 0 and h["failed"] > 0
+    if not (lagged or stale or never):
+        return
+    last = _watch_mirror_state.get("last_warn", -10 ** 9)
+    if step - last < max_lag:
+        return                                   # throttle: once per max_lag steps
+    _watch_mirror_state["last_warn"] = step
+    print("\n" + "!" * 78, flush=True)
+    print(f"!!! MIRROR IS NOT KEEPING UP — step {step}, last checkpoint on Drive: "
+          f"step {h['last_ok_step']} ({h['last_ok_age_s']}s ago), "
+          f"failed={h['failed']} retried={h['retried']}", flush=True)
+    print(f"!!! last error: {h['last_error']}", flush=True)
+    print("!!! Training is fine but NOTHING is being saved. If the runtime stops now, "
+          "every step since the last mirrored checkpoint is lost.", flush=True)
+    print("!!! Usual cause: Google Drive out of space (empty the Drive trash) or the "
+          "Drive mount went away. Check the log above for the copy error.", flush=True)
+    print("!" * 78 + "\n", flush=True)
+
+
+_watch_mirror_state: dict = {}
+
+
+def _heartbeat(mirror_dir, mirror, payload: dict) -> None:
+    if not mirror_dir:
+        return
+    write_heartbeat(mirror_dir, payload, mirror)
+
+
 def _flush_mirror(mirror, cfg: dict) -> None:
     """Wait for the background Drive copy so the last checkpoint is really on Drive.
 
@@ -90,6 +135,11 @@ def _flush_mirror(mirror, cfg: dict) -> None:
           + ("" if ok else " (WARNING: flush timed out)"))
     if stats.get("last_error"):
         print(f"[pretrain] mirror last error: {stats['last_error']}")
+    if stats["copied"] == 0 and (stats["failed"] or stats["retried"]):
+        print("!" * 78)
+        print("[pretrain] NO CHECKPOINT REACHED DRIVE IN THIS SESSION. The run itself "
+              "was fine; persistence was not. Check Drive space / the mount.")
+        print("!" * 78)
 
 
 def main() -> None:
@@ -244,6 +294,17 @@ def main() -> None:
                            elapsed_s=round(elapsed, 1), eta_min=round(eta_min, 1))
                 print(f"step {step:6d} loss={running_loss/cfg['log_every']:.4f} lr={lr:.2e} "
                       f"gnorm={grad_norm:.2f} tok/s={tok_per_s:7.1f} eta={eta_min:6.1f}m", flush=True)
+                if mirror_dir:
+                    hb_every = int(cfg.get("heartbeat_every", 100))
+                    if hb_every > 0 and step % hb_every == 0:
+                        _heartbeat(mirror_dir, mirror, {
+                            "run_id": run_id, "step": step, "tokens_seen": tokens_seen,
+                            "loss": round(running_loss / cfg["log_every"], 4),
+                            "tokens_per_s": round(tok_per_s, 1),
+                            "max_steps": cfg["max_steps"],
+                            "pid": os.getpid(),
+                        })
+                        _watch_mirror(mirror, step, cfg)
                 running_loss = 0.0
 
             if step % cfg["eval_every"] == 0:

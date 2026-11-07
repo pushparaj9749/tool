@@ -42,7 +42,11 @@ log_dir: logs
 storage_min_free_gb: 3.0
 resume: auto
 mirror_dir: /content/drive/MyDrive/ankit-llm/checkpoints/t4-full
-# Async mirror: copies run on a background thread (a sync 1.27 GB Drive copy
-# took 5-8 min and stalled the GPU loop), coalescing to the newest checkpoint.
+# Async mirror. Measured on the T4: a 1.27 GB Drive copy takes ~17 s (~7% of the
+# 200 steps it covers), and the async thread keeps even that off the critical path,
+# coalescing to the newest checkpoint.
 mirror_keep: 2              # newest N .pt files kept in the Drive mirror
 mirror_flush_timeout_s: 1800  # wait this long for the final copy before exiting
+heartbeat_every: 100          # tiny heartbeat.json on Drive: "how far did training really get?"
+mirror_max_lag_steps: 600     # shout if the newest Drive checkpoint is this far behind
+mirror_max_age_s: 1800        # or if nothing has been mirrored for this long
