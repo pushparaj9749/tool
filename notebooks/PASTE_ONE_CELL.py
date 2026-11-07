@@ -112,12 +112,38 @@ def sync_repo(repo_dir: Path) -> str:
 
 # --------------------------------------------------------------------- 3. Drive
 def mount_drive() -> Path | None:
-    try:
-        from google.colab import drive  # noqa: PLC0415
-    except ImportError:
-        print("[drive] not running in Colab — no Drive mount", flush=True)
-        return None
-    drive.mount("/content/drive")
+    """Use the Drive mount if it exists; otherwise try to create it.
+
+    `drive.mount()` talks to the Colab front-end through the IPython kernel, so it only
+    works *inside a cell*. Called from a subprocess (`!python notebooks/PASTE_ONE_CELL.py`)
+    it dies with:
+
+        AttributeError: 'NoneType' object has no attribute 'kernel'
+
+    So: if Drive is already mounted (a cell did it, or ANKIT_DRIVE_DIR points at it), just
+    use it. If not, say exactly what to run instead of raising a traceback.
+    """
+    if DRIVE.exists():
+        print(f"[drive] already mounted: {DRIVE}", flush=True)
+    else:
+        try:
+            from google.colab import drive  # noqa: PLC0415
+        except ImportError:
+            print("[drive] not running in Colab — no Drive mount", flush=True)
+            return None
+        try:
+            drive.mount("/content/drive")
+        except Exception as exc:                                # noqa: BLE001
+            print(f"[drive] mount failed inside a subprocess ({type(exc).__name__}). "
+                  "Drive mount ek notebook CELL me hi chalta hai, script me nahi.",
+                  flush=True)
+            print("[drive] Ek cell me ye chalao, phir yahi script dobara:", flush=True)
+            print("        from google.colab import drive; drive.mount('/content/drive')",
+                  flush=True)
+            return None
+        if not DRIVE.exists():
+            print(f"[drive] mounted but {DRIVE} is missing", flush=True)
+            return None
     (DRIVE / "checkpoints").mkdir(parents=True, exist_ok=True)
     (DRIVE / "reports").mkdir(parents=True, exist_ok=True)
 
