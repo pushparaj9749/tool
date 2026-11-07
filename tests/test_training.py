@@ -137,3 +137,22 @@ def test_restore_without_cache_is_a_no_op(tmp_path):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
     from scripts.colab_autopilot import restore_artifacts
     assert restore_artifacts(cache=tmp_path / "nothing", root=tmp_path / "vm") == []
+
+
+def test_build_stamp_identifies_the_running_code():
+    """Every run must leave proof of *which* build produced its checkpoints.
+
+    The 2026-11-06 session ran an older checkout (step-tagged mirror, no
+    `latest.pt`) and nothing on Drive could say so; this stamp makes it a fact.
+    """
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from scripts.colab_autopilot import BUILD_MARKERS, build_stamp
+
+    stamp = build_stamp()
+    assert "sha" in stamp and "markers" in stamp
+    # every durability fix listed must be present in *this* checkout
+    missing = [k for k, ok in stamp["markers"].items() if not ok]
+    assert not missing, f"checkout is missing safety markers: {missing}"
+    assert len(stamp["markers"]) == len(BUILD_MARKERS)
