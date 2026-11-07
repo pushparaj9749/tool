@@ -390,6 +390,24 @@ def stage_resume_test(choice: Dict[str, object], extra_steps: int = 20) -> Dict[
     return result
 
 
+def plan_epochs(train_bin: str | Path, tokens_per_step: int,
+                max_steps: int) -> Dict[str, object]:
+    """Turn max_steps into something meaningful: epochs over the actual corpus.
+
+    The corpus is 24.1M tokens, so a 2B-token "Chinchilla" target would be ~83 passes
+    over the same text - memorisation, not language. This makes the real number visible
+    before a session is spent.
+    """
+    path = Path(train_bin)
+    tokens = path.stat().st_size // 2 if path.exists() else 0      # uint16 shards
+    steps_per_epoch = max(1, tokens // max(1, tokens_per_step)) if tokens else 0
+    epochs = round(max_steps / steps_per_epoch, 2) if steps_per_epoch else None
+    return {"train_tokens": tokens, "tokens_per_step": tokens_per_step,
+            "steps_per_epoch": steps_per_epoch, "max_steps": max_steps,
+            "epochs": epochs,
+            "total_tokens": max_steps * tokens_per_step}
+
+
 def _mirror_dir_for(ckpt_dir: str) -> Optional[Path]:
     drive = drive_dir()
     if drive is None:
@@ -509,8 +527,21 @@ def stage_train(choice: Dict[str, object], session_budget_min: int, steps: Optio
         overrides["max_steps"] = steps
     if not (ROOT / "checkpoints/t4-full/latest.json").exists():
         overrides.setdefault("warmup_steps", 2000)
-    cfg = _generate_config("configs/pretraining_colab_t4.yaml",
-                           "configs/_autogen_full.yaml", choice, overrides)
+    cfg_path = _generate_config("configs/pretraining_colab_t4.yaml",
+                                "configs/_autogen_full.yaml", choice, overrides)
+    import yaml as _yaml
+    _cfg = _yaml.safe_load(cfg_path.read_text(encoding="utf-8"))
+    plan = plan_epochs(_cfg["train_bin"],
+                       int(_cfg["batch_size"]) * int(_cfg["seq_len"])
+                       * int(_cfg["grad_accum_steps"]), int(_cfg["max_steps"]))
+    print(f"[autopilot] target: {plan['max_steps']} steps = "
+          f"{plan['total_tokens']/1e6:.0f}M tokens = {plan['epochs']} epochs over "
+          f"{plan['train_tokens']/1e6:.1f}M tokens ({plan['steps_per_epoch']} steps/epoch)")
+    if plan["epochs"] and plan["epochs"] > 30:
+        print(f"[autopilot] WARNING: {plan['epochs']} epochs over the same corpus will "
+              "memorise it. Cap max_steps or add data.")
+    (REPORTS / "autopilot_training_plan.json").write_text(
+        json.dumps(plan, indent=2) + "\n", encoding="utf-8")
 
     # Colab kills the VM without warning. The margin after the budget covers the
     # final eval + save + the last Drive flush, so the newest checkpoint really lands
@@ -521,7 +552,8 @@ def stage_train(choice: Dict[str, object], session_budget_min: int, steps: Optio
     budget_sec = min(budget_sec, MAX_SESSION_SEC)
     print(f"[autopilot] session budget {budget_sec/60:.0f} min; checkpoints every 200 "
           "steps with a background Drive mirror (training no longer waits for Drive)")
-    rc, out = sh_stream([PY, "training/pretrain.py", "--config", str(cfg.relative_to(ROOT)),
+    rc, out = sh_stream([PY, "training/pretrain.py",
+                         "--config", str(cfg_path.relative_to(ROOT)),
                          "--run-id", f"autopilot-full-{time.strftime('%H%M')}",
                          "--resume", "auto", "--time-budget-sec", str(budget_sec)])
     oom = "out of memory" in out.lower()
@@ -635,6 +667,10 @@ def stage_summary(choice: Optional[Dict[str, object]],
     if heartbeat:
         lines += ["## Last heartbeat on Drive (how far training really got)", "", "```",
                   json.dumps(heartbeat, indent=2), "```", ""]
+    plan_file = REPORTS / "autopilot_training_plan.json"
+    if plan_file.exists():
+        lines += ["## Training target (epochs over the real corpus)", "", "```",
+                  plan_file.read_text(encoding="utf-8").strip(), "```", ""]
     train_status = REPORTS / "autopilot_train_status.json"
     if train_status.exists():
         lines += ["## Long-run status", "", "```",

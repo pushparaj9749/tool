@@ -67,3 +67,21 @@ def test_one_training_step_reduces_loss():
         opt.step()
     after = float(model(x, targets=x).loss)
     assert after < before
+
+
+def test_plan_epochs_is_honest_about_corpus_reuse(tmp_path):
+    """A 2B-token target over a 24.1M-token corpus would be ~83 epochs of the same text."""
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from scripts.colab_autopilot import plan_epochs
+
+    shard = tmp_path / "train.bin"
+    shard.write_bytes(b"\0\0" * 24_100_344)          # uint16 shards
+    plan = plan_epochs(shard, 8192, 64000)
+    assert plan["steps_per_epoch"] == 2941           # 24.1M / 8192
+    assert 21.5 <= plan["epochs"] <= 22.0
+    assert plan["total_tokens"] == 64000 * 8192
+    assert plan_epochs(shard, 8192, 244141)["epochs"] > 80
+    missing = plan_epochs(tmp_path / "nope.bin", 8192, 100)
+    assert missing["train_tokens"] == 0 and missing["epochs"] is None
