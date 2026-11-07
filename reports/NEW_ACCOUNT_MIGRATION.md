@@ -154,3 +154,19 @@ bilkul nahi lagti:
 
 Ye asli download hai (~1.27 GB, 1–3 min), phir naye account ki Drive me wahi layout ban jata hai
 (`step5800.pt` + `latest.json`). Uske baad `PASTE_ONE_CELL.py` normally chalega.
+
+### Download se HTML aa raha ho (2.5 KB file) — gdown use karo
+
+Bade public file par `curl "uc?export=download&id=...&confirm=t"` kabhi-kabhi **HTML page**
+de deta hai (2-3 KB), checkpoint nahi. Script ab pehle `drive.usercontent.google.com` try karta
+hai, phir gdown, aur har attempt ka **size verify** karta hai — HTML ko checkpoint maan kar
+install nahi karta.
+
+Manual raasta (sabse pakka):
+
+```python
+%cd /content/ankit-llm
+!pip install -q gdown
+!gdown --id 1oDzf81qpoOlhNEobd6QRS7xTfHuL5Vwf -O checkpoints/t4-full/step5800.pt
+!ls -lh checkpoints/t4-full/          # 1.2G dikhna chahiye
+```

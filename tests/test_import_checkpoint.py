@@ -97,26 +97,66 @@ def test_drive_root_honours_the_env_override(monkeypatch, tmp_path):
     assert str(mod.drive_root()).endswith("MyDrive/ankit-llm")
 
 
-def test_download_uses_the_large_file_url(tmp_path, monkeypatch):
-    """Drive shows a virus-scan page for big files unless `confirm=t` is set."""
+def test_download_prefers_the_usercontent_host(tmp_path, monkeypatch):
+    """The old `uc?export=download` URL answers a big public file with an HTML page."""
     import subprocess as sp
     import scripts.import_checkpoint as mod
 
-    seen = {}
+    seen = []
 
-    def fake_run(cmd, **kw):
-        seen["cmd"] = cmd
-        out = Path(cmd[cmd.index("-o") + 1])
-        out.write_bytes(b"\x00" * 2048)
-        return sp.CompletedProcess(cmd, 0, "", "")
+    def fake_curl(url, path):
+        seen.append(url)
+        path.write_bytes(b"\x00" * 4096)
+        return sp.CompletedProcess([], 0, "", "")
 
-    monkeypatch.setattr(mod.subprocess, "run", fake_run)
+    monkeypatch.setattr(mod, "_curl", fake_curl)
     dest = tmp_path / "step5800.pt"
-    mod.download_to(dest, "1oDzf81qpoOlhNEobd6QRS7xTfHuL5Vwf")
-    url = seen["cmd"][-1]
-    assert "confirm=t" in url
-    assert "id=1oDzf81qpoOlhNEobd6QRS7xTfHuL5Vwf" in url
-    assert dest.exists() and dest.stat().st_size == 2048
+    mod.download_to(dest, "1oDzf81qpoOlhNEobd6QRS7xTfHuL5Vwf", min_bytes=1024)
+    assert seen and "drive.usercontent.google.com" in seen[0]
+    assert "confirm=t" in seen[0]
+    assert dest.exists() and dest.stat().st_size == 4096
+
+
+def test_download_rejects_html_and_falls_back_to_gdown(tmp_path, monkeypatch, capsys):
+    """A 2.5 KB HTML page must never be installed as a 1.27 GB checkpoint."""
+    import subprocess as sp
+    import scripts.import_checkpoint as mod
+
+    def html_curl(url, path):
+        path.write_bytes(b"<!DOCTYPE html><html><body>download quota</body></html>")
+        return sp.CompletedProcess([], 0, "", "")
+
+    used = {}
+
+    def fake_gdown(path, file_id):
+        used["gdown"] = file_id
+        path.write_bytes(b"\x01" * 4096)
+        return True
+
+    monkeypatch.setattr(mod, "_curl", html_curl)
+    monkeypatch.setattr(mod, "_gdown", fake_gdown)
+    dest = tmp_path / "step5800.pt"
+    mod.download_to(dest, "1oDzf81qpoOlhNEobd6QRS7xTfHuL5Vwf", min_bytes=1024)
+    assert used.get("gdown") == "1oDzf81qpoOlhNEobd6QRS7xTfHuL5Vwf"
+    assert dest.stat().st_size == 4096
+    assert "gdown" in capsys.readouterr().out
+
+
+def test_download_failure_explains_what_to_do(tmp_path, monkeypatch):
+    import subprocess as sp
+    import scripts.import_checkpoint as mod
+
+    def html_curl(url, path):
+        path.write_bytes(b"<html>nope</html>")
+        return sp.CompletedProcess([], 0, "", "")
+
+    monkeypatch.setattr(mod, "_curl", html_curl)
+    monkeypatch.setattr(mod, "_gdown", lambda path, file_id: False)
+    with pytest.raises(SystemExit) as exc:
+        mod.download_to(tmp_path / "x.pt", "1oDzf81qpoOlhNEobd6QRS7xTfHuL5Vwf", min_bytes=1024)
+    msg = str(exc.value)
+    assert "gdown --id" in msg and "HTML" in msg
+    assert not (tmp_path / "x.pt").exists(), "a broken page must not be left behind"
 
 
 def test_auth_failure_points_at_the_download_method(tmp_path, monkeypatch, capsys):
