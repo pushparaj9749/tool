@@ -270,3 +270,24 @@ now marked SFT-only.
 
 Tests: **84 passed** (`test_model_tryout.py` runs the whole path on a tiny CPU checkpoint:
 generation, chat mode, and the clear error when no checkpoint exists), `--self-test` PASS.
+
+## Update 2026-11-07 (04:10Z) — GPU quota moved accounts: `scripts/import_checkpoint.py`
+
+Colab's GPU quota is per Google account, but the checkpoint lives in the Drive of the account
+that trained. Running the next chunk on a second account would therefore start at step 0 again —
+the same accident class as 2026-11-06.
+
+`scripts/import_checkpoint.py` moves the checkpoint between accounts **inside Google's network**
+(`files().copy`, ~30-60 s, no bytes through the VM), or by `curl` from a public link as a
+fallback. It writes `stepNNNN.pt` + sidecar + `latest.json` in exactly the layout
+`newest_mirrored_checkpoint()` reads, is idempotent, and refuses to write to the source account.
+`ANKIT_DRIVE_DIR` now overrides the Drive root in both `colab_autopilot.py` and
+`PASTE_ONE_CELL.py` (second account, shared folder, hand-made shortcut).
+
+Why the checkpoint is **not** on git: repo files are hard-blocked at 100 MB (this one is 1.27 GB),
+LFS free tier is 1 GB/month, and Releases would mean a fresh 1.27 GB upload every chunk
+(~14 GB across 11 chunks) with a token. Measured trade-off and the 3-step sharing procedure:
+`reports/NEW_ACCOUNT_MIGRATION.md`.
+
+Tests: **91 passed** (7 new for import: link parsing, newest-file selection, pointer shape,
+resumable-layout integration, idempotency, env override), `--self-test` PASS.

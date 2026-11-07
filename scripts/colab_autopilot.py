@@ -100,7 +100,10 @@ def cuda_available() -> bool:
 
 
 def drive_dir() -> Optional[Path]:
-    p = Path(DRIVE_DEFAULT)
+    """`ANKIT_DRIVE_DIR` overrides the location (a second Google account, a shared
+    folder, a hand-made shortcut). Everything else in the pipeline follows from here."""
+    env = os.environ.get("ANKIT_DRIVE_DIR")
+    p = Path(env) if env else Path(DRIVE_DEFAULT)
     return p if p.exists() else None
 
 
