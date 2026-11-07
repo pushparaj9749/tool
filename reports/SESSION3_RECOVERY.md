@@ -1,76 +1,103 @@
-# Session 3 — runtime band ho gaya: kya bacha, kya gaya, ab kya karna hai
+# Session 3 — runtime band ho gaya: poora sach, aur ab kya karna hai
 
-Sab numbers Drive par *verify* karke likhe hain, guess nahi.
+Sab kuch Drive ke artefacts se **verify** karke likha hai. Guess nahi. Aur ek jagah
+mujhe pehle galat diagnosis hua tha — wo bhi neeche correct kiya hai.
 
-## 1. Kya bacha (Drive par asli files)
+## 1. Asli timeline (artefacts se)
 
-| file | step | tokens | Drive id |
-|---|---|---|---|
-| `checkpoints/t4-full/step400.pt` | 400 | 3,276,800 | `1ij1Tw9wDnTWMLQ_BHKLgLLRkLbnrpO2E` |
-| `checkpoints/t4-full/step200.pt` | 200 | 1,638,400 | `1gONUgUZIUHI4_o-i5oQTtY0MCMP1FUKK` |
-| `checkpoints/t4-pilot/final.pt` | 320 | 2,621,440 | `15Bytmo2_fWHLqSvH2p2pa9wYLqiSGLnc` |
-| `checkpoints/t4-pilot/step300.pt` | 300 | 2,457,600 | `1WoBhHqWl2IrYuyU3xum8j0nBXlsqsWLt` |
-| `checkpoints/t4-pilot/best-step300.pt` | 300 | 2,457,600 | `1YObL4NZQXyMHDTyGXZ8mcuHWqQ7PZkd2` |
+| time (UTC) | kya hua | proof |
+|---|---|---|
+| 10:56:56 | notebook cell chala, log bana | Drive log |
+| — | prepare PASS: 24,100,344 train / 402,704 val tokens, leakage 0 | log |
+| — | benchmark 54 cells → chooser: fp16 / bs16 / seq512 / accum1 | log |
+| 11:11–11:17 | pilot 300 steps, loss 9.5613 → 3.8324, val_loss **5.0357** | log + Drive |
+| ~11:17 | resume test **PASS** (`resumed ... at step 300`) | log |
+| **11:19:13** | long run `autopilot-full-1119` chala | 240 s @ step 400 se derive |
+| 11:21:05 | step 200 local save | `step200.json` |
+| 11:22:45 | step 200 Drive par | Drive mtime |
+| 11:23:14 | step 400 local save | `step400.json` |
+| **11:23:35** | step 400 Drive par — **aakhri write** | Drive mtime |
+| — | log ka aakhri line: `step 400 loss=4.3542 ... tok/s=13655.6 eta=2437.0m` | log (21,803 B) |
 
-`t4-full` par sabse aakhri Drive write: **2026-11-06 11:23:35Z**.
-Step 400 ke baad ka kuch bhi Drive par nahi hai — wo sirf Colab ke `/content` disk par tha,
-aur runtime stop hone par Colab wo disk **delete** kar deta hai. Isliye step 400 ke baad ka
-compute recover nahi ho sakta. Ye loss hai, chhupaya nahi ja raha.
+Matlab: **long run sirf 4.3 minute chala**, poora session 27 minute. 11:23:35Z ke baad
+Drive par kuch bhi nahi likha gaya — na checkpoint, na log line, na summary.
 
-Bachane wali baatein: architecture, tokenizer, data pipeline (24.1M train / 402,704 val
-tokens), optimizer/optimizer config, aur resume path — sab intact hai, aur resume **asli T4
-par prove ho chuka hai** (`resumed from checkpoints/t4-pilot/final.pt at step 300`).
+## 2. Kya bacha
 
-## 2. Galti kya thi (bug, tumhari galti nahi)
+| file | step | tokens |
+|---|---|---|
+| `t4-full/step400.pt` | 400 | 3,276,800 |
+| `t4-full/step200.pt` | 200 | 1,638,400 |
+| `t4-pilot/final.pt` | 320 | 2,621,440 |
+| `t4-pilot/step300.pt` | 300 | 2,457,600 |
+| `t4-pilot/best-step300.pt` | 300 | 2,457,600 |
 
-Har 200 steps par 1.27 GB checkpoint Drive par **synchronously**, training loop ke andar
-copy hota tha:
+"5,520 steps" ka **koi artefact nahi hai**. Agar GPU sach me uske baad chalta raha, to wo
+zero durability ke saath chala — aur wahi asli bug hai.
 
-- 200 steps ka GPU time ≈ **110 s**
-- ek Drive copy ≈ **5–8 min**
+## 3. Meri pichhli galti (correction)
 
-Matlab session ka ~80% time Drive ka wait, aur Drive GPU se bahut peeche. Isi wajah se
-GPU ne bahut aage tak kaam kiya lekin Drive par sirf step 400 tak hi pahuncha — aur
-runtime band hone par jo bacha, wo step 400 tha.
+Maine bola tha "mirror session ka 80% time kha raha tha, ek copy 5–8 min". **Ye galat tha.**
+Numbers ulta kehte hain:
 
-## 3. Fix (merge ho gaya, `main` @ `71727b3`)
+- `step200.json.created_at` (11:21:05) → `step400.json.created_at` (11:23:14) = **129.0 s**
+  me 200 steps. Pure compute (14,696 tok/s) = 111.5 s ⇒ **copy ~17.5 s**.
+- Log bhi wahi kehta hai: 400 steps = **240 s** total, 223 s compute + ~17 s copy = **~7%**.
 
-1. `training/mirror.py` — **BackgroundMirror**: copy background daemon thread par. Training
-   Drive ka wait nahi karti. Queue **coalesce** hoti hai (sirf newest pending), to mirror
-   ek copy se zyada kabhi peeche nahi reh sakta.
-2. `.partial` → rename, phir `latest.json` — adhoori copy kabhi "latest" nahi banti;
-   `newest_mirrored_checkpoint()` byte-size bhi verify karta hai.
-3. **Auto-restore**: naya VM khali hota hai, isliye har training entry point pehle newest
-   checkpoint Drive se local par laata hai (`stage_restore()` + `pretrain.py` me safety net).
-   Ab chupchaap step 0 se restart ho hi nahi sakta.
-4. `--mode resume`: restore + train only (bench/pilot/resume-test skip). Measured config
-   Drive par cache hoti hai, dobara 54-cell benchmark nahi.
-5. `best-step` ab mirror nahi hota (double traffic band).
-6. Session cap 5.5 h → **8 h** (Colab ~12 h se neeche), aakhir me final save ke liye 420 s.
-7. Pilot ka `loss_improved` ab median-based (step-1 ka lucky-low false alarm nahi deta).
+1.27 GB / 17.5 s ≈ 73 MB/s — healthy Drive mount. Async mirror rakhna phir bhi theek hai
+(7% critical path se hat jata hai), par session ka tail isse nahi gaya.
 
-Verification (CPU host): `pytest tests/` → **62 passed**, `--self-test` → PASS (async mirror
-bhi test hota hai), aur ek naya end-to-end test: train → local checkpoint dir **delete** →
-dobara chalao → `[mirror] restored final.pt (step 5)` + `resumed from ... at step 5`.
+## 4. Do asli bug (fix ho gaye)
 
-## 4. Ab tumhe bas itna karna hai
+1. **Silent failure, koi signal nahi.** 11:23:35 ke baad kuch persist nahi hua aur kisi
+   cheez ko farq nahi pada: heartbeat nahi, watchdog nahi, fail hone par bas ek warning
+   line 21 KB ke log me, summary sirf sabse aakhir me. Console `loss=...` print karta rehta
+   hai, model kuch save nahi karta — pata hi nahi chalta.
+2. **Mirror Drive quota leak kar raha tha.** Har naya checkpoint purane ko prune karta tha,
+   aur Drive mount par `unlink` = **trash** me move, jo quota khata hai. Abhi Drive me 16
+   trashed 1.27 GB checkpoints (~20.3 GB) pade hain + 6.35 GB live. Poora 244,141-step run
+   ~1,220 saves karta → **~1.5 TB trash**. Free 15 GB Drive to ~10 saves me hi bhar jata.
 
-1. Naya Colab kholo: **https://colab.research.google.com/github/pushparaj9749/tool/blob/main/notebooks/ANKIT_LLM_Colab_ONE_CLICK.ipynb**
-2. Runtime → Change runtime type → **T4 GPU**
-3. Cell 1 → Cell 2 (Drive mount, OK dabana) → **Cell 3**
+## 5. Fix (is commit me)
 
-Cell 3 khud dekhta hai ki Drive par checkpoint hai: hai → `MODE = resume`, step 400 se
-aage badhega (bench/pilot skip). Nahi hota to poora pipeline chalata hai.
+1. **Ek rolling file**: mirror `<run>/latest.pt` ko overwrite karta hai, step-tagged files +
+   prune nahi. Footprint constant 1.27 GB, trash nahi badhta, clean-up nahi chahiye.
+2. **`heartbeat.json` har 100 steps**: step, tokens_seen, loss, tok/s, mirror health.
+   Kuch hundred bytes — "GPU ghanton chala, kitna hua?" ka seedha jawab.
+3. **Watchdog**: har heartbeat par current step vs Drive par asli step compare; 600 steps se
+   zyada peeche, 30 min se kuch land nahi hua, ya copies fail ho rahi hain → 6-line laal
+   warning `MIRROR IS NOT KEEPING UP`.
+4. **Loud + retry**: 2 retries (12 s / 24 s backoff), rename ke baad size verify,
+   permanent fail par `MIRROR FAILED ... this checkpoint is NOT on Drive`, aur session ke
+   end me banner agar kuch bhi Drive par nahi pahuncha.
+5. **Preflight probe**: long run se pehle chhoti file likh kar check — fail ho to saaf
+   message: "Drive full → Trash khaali karo".
+6. **Restore par gap report**: naye VM par heartbeat padh kar batata hai "aakhri session
+   step X tak gaya, newest checkpoint step Y" — loss shuru se pehle pata chal jata hai.
+7. Purane step-tagged mirrors (jo abhi Drive par hain) **abhi bhi resumable** hain.
 
-## 5. Honest expectation (T4 par abhi measure nahi hua)
+## 6. Verified (CPU host, measured)
 
-Async path **real T4 par nahi chala** hai — ye design + CPU proof hai, measured GPU result
-nahi. Isliye jo neeche hai wo estimate hai:
+```
+pytest tests/            -> 71 passed
+--self-test              -> PASS
+resume e2e               -> local checkpoints delete -> restored latest.pt (step 5) -> resumed at step 5
+dead-mirror drill        -> MIRROR FAILED + MIRROR IS NOT KEEPING UP +
+                            NO CHECKPOINT REACHED DRIVE, heartbeat phir bhi likha,
+                            training exit code 0 (dead Drive healthy run ko nahi maarta)
+```
 
-- mirror critical path se hatne ke baad ~1.6–1.8 steps/s (0.55–0.6 s/step) rehna chahiye
-- 8 h session ≈ **45–48k steps** (~370–390M tokens), pehle ~5.5k tha
-- poora 2B token target (244,141 steps) ≈ **5–6 sessions**
+## 7. Tumhe ab kya karna hai
 
-Pehli baar chala kar mujhe `reports/autopilot_summary.md` ka content bhej dena — usme
-`[mirror]` stats (copied / coalesced / seconds per copy) aayenge, usse ye estimate
-confirm ya correct ho jayega.
+1. **Ek baar Google Drive → Trash → Empty trash** (ye ~20 GB free karega). Ye permanent hai,
+   isliye maine khud nahi kiya — lekin trash me sirf purane prune hue checkpoints hain, koi
+   unique data nahi. Ab naya design trash nahi badhata, to ye ek hi baar karna hai.
+2. Naya Colab: **https://colab.research.google.com/github/pushparaj9749/tool/blob/main/notebooks/ANKIT_LLM_Colab_ONE_CLICK.ipynb**
+3. Runtime → T4 → Cell 1 → Cell 2 → **Cell 3** (khud `--mode resume` chunega, step 400 se aage).
+
+## 8. Honest expectation
+
+T4 par kuch bhi naya measure nahi hua. Measurements jo hain: ~1.7 steps/s, ~7% mirror
+overhead ⇒ 8 ghante me ~45k steps (~370M tokens). Poora 2B target ≈ 5–6 sessions.
+Aur ek data problem: corpus 24.1M tokens hai, to 2B tokens = ~83 epochs — overfit hoga.
+Isliye ~20–25 epochs (~58k–73k steps) par cap lagana zyada samajhdari hai. Bolo to laga du.

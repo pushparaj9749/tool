@@ -146,101 +146,113 @@ a **1.53× under-read** that no safety margin of 13.0 GB could absorb.
 
 ---
 
-# Session 3 — the runtime was stopped and the mirror was 13× behind the GPU
+# Session 3 — the run stopped at step 400 and nothing said so
 
-## What happened
+## Timeline, reconstructed from the artefacts (not from memory)
 
-Session 3 was the first genuine long run. It started at 10:56Z and was healthy:
+| time (UTC) | event | source |
+|---|---|---|
+| 10:56:56 | notebook cell starts, log file created | Drive log name/mtime |
+| — | prepare PASS: 24,100,344 train / 402,704 val tokens, leakage 0 | log |
+| — | benchmark 54 cells, all finite; chooser picks fp16/bs16/seq512/accum1 | log |
+| 11:11–11:17 | pilot 300 steps, loss 9.5613 → 3.8324, val_loss **5.0357** | log + Drive |
+| ~11:17 | resume test **PASS**: `resumed from checkpoints/t4-pilot/final.pt at step 300` | log |
+| **11:19:13** | long run `autopilot-full-1119` starts (derived) | 240 s elapsed at step 400 |
+| 11:21:05 | step 200 checkpoint written locally (`created_at`) | `step200.json` |
+| 11:22:45 | step 200 checkpoint visible on Drive | Drive mtime |
+| 11:23:14 | step 400 checkpoint written locally (`created_at`) | `step400.json` |
+| **11:23:35** | step 400 on Drive — **the last write of any kind** | Drive mtime |
+| — | log's final line: `step    400 loss=4.3542 lr=1.20e-04 gnorm=1.74 tok/s=13655.6 eta=2437.0m` | log (21,803 B, ends here) |
 
-| evidence | value |
-|---|---|
-| prepare | PASS (24,100,344 train / 402,704 val tokens, leakage 0) |
-| benchmark | 54 cells, all finite |
-| auto config | fp16 / bs16 / seq512 / accum 1 = 8,192 tok/step |
-| pilot | 300 steps, val_loss **5.0357**, loss 9.5613 → 3.8324 |
-| resume test | **PASS** — `resumed from checkpoints/t4-pilot/final.pt at step 300` |
-| long run | `autopilot-full-1119`, step 400 reached, loss 4.35, 13.2–14.7k tok/s |
+So the long run lived **4.3 minutes**, not hours, and the whole session lasted 27 minutes.
+Nothing was written to Drive after 11:23:35Z: no checkpoint, no log line, no summary, no
+`autopilot_error.txt`.
 
-Then the Colab runtime was stopped (accidentally). **Colab wipes `/content` when a
-runtime stops.** Everything that was only on the VM's disk is gone.
+## What survived (verified by listing Drive)
 
-## What actually survived (verified on Drive, not assumed)
-
-| file | Drive id | step | tokens |
+| file | step | tokens | Drive id |
 |---|---|---|---|
-| `checkpoints/t4-full/step400.pt` | `1ij1Tw9wDnTWMLQ_BHKLgLLRkLbnrpO2E` | 400 | 3,276,800 |
-| `checkpoints/t4-full/step200.pt` | `1gONUgUZIUHI4_o-i5oQTtY0MCMP1FUKK` | 200 | 1,638,400 |
-| `checkpoints/t4-pilot/final.pt` | `15Bytmo2_fWHLqSvH2p2pa9wYLqiSGLnc` | 320 | 2,621,440 |
-| `checkpoints/t4-pilot/{step300,best-step300}.pt` | — | 300 | 2,457,600 |
+| `t4-full/step400.pt` | 400 | 3,276,800 | `1ij1Tw9wDnTWMLQ_BHKLgLLRkLbnrpO2E` |
+| `t4-full/step200.pt` | 200 | 1,638,400 | `1gONUgUZIUHI4_o-i5oQTtY0MCMP1FUKK` |
+| `t4-pilot/final.pt` | 320 | 2,621,440 | `15Bytmo2_fWHLqSvH2p2pa9wYLqiSGLnc` |
+| `t4-pilot/step300.pt` | 300 | 2,457,600 | `1WoBhHqWl2IrYuyU3xum8j0nBXlsqsWLt` |
+| `t4-pilot/best-step300.pt` | 300 | 2,457,600 | `1YObL4NZQXyMHDTyGXZ8mcuHWqQ7PZkd2` |
 
-Last Drive write in `t4-full`: **11:23:35Z**. Nothing newer exists anywhere. Any step
-beyond 400 lived only on the VM and is unrecoverable — that is the honest accounting.
+The "~5,520 steps" figure reported after the session has **no artefact behind it**. If the
+GPU really did run on after 11:23:35, then it ran with zero durability - which is the bug
+below, and there was no way to see it.
 
-## Root cause — the mirror was the bottleneck (bug 3)
+## Correction to an earlier claim in this file
 
-`save_checkpoint(..., mirror_dir=...)` copied the **1.27 GB** checkpoint to Drive
-**synchronously, inside the training loop**, every 200 steps:
+An earlier version of this section said the mirror was ~80 % of wall time and that a 1.27 GB
+copy took 5–8 minutes. **That was wrong**, and the numbers disprove it:
 
-* 200 steps of fp16/bs16/seq512 ≈ **110 s** of GPU time (0.55 s/step)
-* one Drive copy through the FUSE mount ≈ **5–8 min**
+* `step200.json.created_at` (11:21:05) → `step400.json.created_at` (11:23:14) = **129.0 s**
+  for 200 steps. Pure compute at the measured 14,696 tok/s is 111.5 s → **~17.5 s per copy**.
+* The log's own numbers agree: 400 steps in **240 s** total; 223 s of compute + ~17 s of
+  copying = **~7 % overhead**.
 
-So ~80 % of the paid session was spent waiting for Drive, and Drive stayed many
-checkpoints behind the GPU. Measured effect: ~0.37 steps/s wall clock vs **1.67 steps/s**
-pure compute — the run looked ~6× slower than the benchmark promised, and when the
-runtime died the newest durable checkpoint was 400 steps while the GPU had gone much
-further. `best-step{step}` was mirrored too, doubling the traffic, and the two-mirror
-plus prune interaction (`keep=3`) meant the mirror directory only ever held a couple of
-snapshots.
+A 1.27 GB copy at that rate is ~73 MB/s, which is what a healthy Drive mount does. The
+async mirror in the previous commit is still worth keeping (it takes the 7 % off the critical
+path), but it was never the reason this session lost work.
+
+## The two real bugs
+
+1. **Silent failure with no signal.** From 11:23:35Z nothing persisted, and nothing in the
+   system noticed: no heartbeat, no watchdog, one warning line per failed copy inside a
+   21 KB log, and the summary is only written at the very end. A run can lose hours while
+   the console keeps printing healthy `loss=...` lines.
+2. **The mirror leaked Drive quota.** Every new checkpoint pruned an old one, and `unlink`
+   on a Drive mount only moves the file to the **trash**, which still counts against the
+   quota. Drive currently holds 16 trashed 1.27 GB checkpoints (~20.3 GB) plus 6.35 GB
+   live. The full 244,141-step run would have made ~1,220 saves and leaked **~1.5 TB** of
+   trash. It only needs ~10 saves to fill a free 15 GB Drive.
 
 ## Fixes
 
-1. **`training/mirror.py` — `BackgroundMirror`**: the copy runs on a daemon thread, so the
-   GPU loop never waits for Drive. Submissions **coalesce**: only the newest pending
-   checkpoint is kept, so the mirror can never fall further behind than one copy no matter
-   how slow Drive is (`stats["coalesced"]` counts the ones that were superseded, which is
-   correct behaviour, not lost work — local checkpoints keep the full history).
-2. **Atomic, self-describing pointer**: `.partial` → `os.replace`, then `latest.json` is
-   written last inside the mirror directory. A truncated file can therefore never be
-   offered as resumable — `newest_mirrored_checkpoint()` also re-checks the recorded byte
-   size before trusting any `.pt`.
-3. **Automatic restore on every training entry point**: `stage_train()` calls
-   `stage_restore()`, which copies the newest complete checkpoint from Drive back into the
-   local directory (repointing `latest.json`, whose `path` still names the old session).
-   `training/pretrain.py` repeats the same restore as a second safety net before
-   `--resume auto`. A fresh VM can no longer silently restart from step 0.
-4. **`--mode resume`**: restore + train only; skips prepare/benchmark/pilot/resume-test.
-   The measured config choice is cached on Drive (`reports/autopilot_config_choice.json`)
-   so a new VM does not re-benchmark 54 cells. Missing token shards are still rebuilt
-   (they are gitignored, so a fresh VM really does not have them).
-5. **`best-step{step}.pt` is no longer mirrored** — local only. It doubled Drive traffic and
-   made the newest *step* checkpoint lag further behind.
-6. **Session budget cap 5.5 h → 8 h** (`MAX_SESSION_SEC = 28800`, still under Colab's ~12 h
-   ceiling) with a 420 s tail reserved for the final eval + save + Drive flush. The old cap
-   threw away ~2.5 h of GPU time every session.
-7. **Pilot `loss_improved` is now honest**: median of the first tenth vs the median of the
-   last tenth instead of step 1 vs step N (step 1 of session 3 was a lucky 1.0564 and made
-   a perfectly healthy run report `loss_improved: false`).
+1. **One rolling file.** The mirror now overwrites `<run>/latest.pt` (and `latest.json`)
+   instead of writing step-tagged files and pruning them. Constant footprint of 1.27 GB per
+   run, no trash growth, nothing to clean up.
+2. **`heartbeat.json` every 100 steps**: run id, step, tokens_seen, loss, tok/s, and the
+   mirror's health. A few hundred bytes, written atomically, and it is the answer to "the
+   GPU ran for hours - how far did it actually get?".
+3. **Watchdog**: every heartbeat the run compares the current step with what is really on
+   Drive and prints a 6-line alarm (`MIRROR IS NOT KEEPING UP`) when the newest mirrored
+   checkpoint is more than 600 steps behind, when nothing has landed for 30 minutes, or
+   when copies are failing outright.
+4. **Loud, retried copies**: 2 retries with 12 s/24 s backoff, size verified after the
+   rename, `MIRROR FAILED ... this checkpoint is NOT on Drive` on every permanent failure,
+   and a closing banner when a whole session reached Drive zero times.
+5. **Preflight probe**: before the long run starts, autopilot writes and deletes a tiny file
+   in the mirror directory and refuses to stay quiet if that fails (`Drive is full -> empty
+   the Drive trash`).
+6. **Restore reports the gap**: on a new VM, the mirror's heartbeat is read and printed next
+   to the newest checkpoint step, so "how much did we lose" is answered before training starts.
+7. Legacy step-tagged mirrors from the previous build are still resumable (the restore path
+   falls back to the highest-step sidecar).
 
-## Verification (measured, CPU-only host)
+## Verification (CPU-only host, measured)
 
 ```
-python -m pytest tests/ -q                       -> 62 passed
-python scripts/colab_autopilot.py --self-test     -> PASS
-    [self-test] async mirror OK: ['final.pt', 'step3.pt']
-    [self-test] chooser on real T4 data -> float16 bs16 seq512 accum1 (16136.6 tok/s, 8.78 GB)
-tests/test_resume_from_mirror_e2e.py              -> PASS
-    sess1: [mirror] mirrored step5.pt  ->  sess2: [mirror] restored final.pt (step 5)
-    [pretrain] resumed from checkpoints/_mirror_e2e/final.pt at step 5
+python -m pytest tests/ -q                                   -> 71 passed
+python scripts/colab_autopilot.py --self-test                 -> PASS
+tests/test_resume_from_mirror_e2e.py                          -> PASS
+    sess1 -> [mirror] mirrored step5 -> latest.pt
+    (local checkpoints deleted = stopped runtime)
+    sess2 -> [mirror] restored latest.pt (tag step5, step 5) -> checkpoints/.../step5.pt
+             [pretrain] resumed from ... at step 5
+dead-mirror drill (destination blocked, i.e. "Drive full"):
+    [mirror] copy of step5.pt failed (attempt 1) ... retrying in 12s
+    [mirror] MIRROR FAILED for step5.pt after 3 attempt(s) ... NOT on Drive
+    !!! MIRROR IS NOT KEEPING UP — step 5, last checkpoint on Drive: step -1
+    [pretrain] NO CHECKPOINT REACHED DRIVE IN THIS SESSION
+    heartbeat.json still written -> step 5 survives
+    training itself exits 0 (a dead Drive must not kill a healthy run)
 ```
-
-The e2e test reproduces the failure exactly: train into a mirror, delete the whole local
-checkpoint directory (what a stopped runtime does), run again — it restores from the
-mirror and resumes at the mirrored step instead of step 0.
 
 ## What is still not proven
 
-The async path has **not** run on a real T4 yet. Until the next GPU session completes,
-"the mirror keeps up with the GPU" is a design claim plus a CPU proof, not a measured T4
-result. Expected (not measured): with the mirror off the critical path, the run should sit
-near the compute rate of ~1.6–1.8 steps/s, i.e. ~45–48k steps in an 8 h session instead of
-~5.5k — the full 244,141-step / 2 B-token target then needs ~5–6 sessions.
+None of this has run on a real T4 yet. The throughput claim is now the modest one that the
+measurements support: ~1.7 steps/s, ~7 % mirror overhead, so an 8 h session should reach
+~45k steps. Until a GPU session completes with a `heartbeat.json` on Drive, that is an
+estimate, not a result.

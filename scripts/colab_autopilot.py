@@ -390,6 +390,33 @@ def stage_resume_test(choice: Dict[str, object], extra_steps: int = 20) -> Dict[
     return result
 
 
+def _mirror_dir_for(ckpt_dir: str) -> Optional[Path]:
+    drive = drive_dir()
+    if drive is None:
+        return None
+    return drive / "checkpoints" / Path(ckpt_dir).name
+
+
+def _preflight_mirror(mirror_dir: Optional[Path]) -> bool:
+    """Fail loudly *before* a long run if Drive cannot be written to."""
+    if mirror_dir is None:
+        print("[autopilot] WARNING: Drive is not mounted — checkpoints will stay on the "
+              "Colab VM and be lost when the runtime stops")
+        return False
+    sys.path.insert(0, str(ROOT))
+    from training.mirror import probe_dir
+    ok, why = probe_dir(mirror_dir, label=f"autopilot-{time.strftime('%H%M')}")
+    if ok:
+        print(f"[autopilot] Drive writable: {mirror_dir}")
+    else:
+        print("!" * 78)
+        print(f"[autopilot] CANNOT WRITE TO DRIVE: {why}")
+        print("[autopilot] checkpoints will not survive the runtime. Most likely the "
+              "Drive is full — open Google Drive -> Trash -> Empty trash, then re-run.")
+        print("!" * 78)
+    return ok
+
+
 def stage_restore(ckpt_dir: str = "checkpoints/t4-full") -> Optional[str]:
     """Copy the newest complete checkpoint from Drive into this VM's local disk.
 
@@ -434,6 +461,14 @@ def stage_restore(ckpt_dir: str = "checkpoints/t4-full") -> Optional[str]:
               " — keeping the local one")
         return str(local_path)
 
+    from training.mirror import read_heartbeat
+    beat = read_heartbeat(mirror)
+    if beat:
+        print(f"[autopilot] last heartbeat on Drive: step {beat.get('step')} at "
+              f"{beat.get('updated_at')} (loss {beat.get('loss')}) — newest "
+              f"checkpoint is step {remote_step}, so "
+              f"{int(beat.get('step') or 0) - remote_step} step(s) of that session "
+              "were worked but not saved")
     print(f"[autopilot] restoring {remote.name} (step {remote_step}) from Drive "
           f"({remote.stat().st_size/1e9:.2f} GB) — this takes a few minutes on a "
           "fresh VM")
@@ -466,6 +501,8 @@ def stage_train(choice: Dict[str, object], session_budget_min: int, steps: Optio
         print("[autopilot] token shards missing on this VM -> building them first "
               "(one-off, ~10-20 min)")
         stage_prepare()
+    mirror_dir = _mirror_dir_for("checkpoints/t4-full")
+    _preflight_mirror(mirror_dir)
     restored = stage_restore("checkpoints/t4-full")
     overrides: Dict[str, object] = {"mirror_keep": 2}
     if steps:
@@ -586,6 +623,18 @@ def stage_summary(choice: Optional[Dict[str, object]],
                   attempts.read_text(encoding="utf-8").strip(), "```", ""]
     if resume is not None:
         lines += ["## Resume verification", "", "```", json.dumps(resume, indent=2), "```", ""]
+    heartbeat = None
+    drive = drive_dir()
+    if drive is not None:
+        try:
+            sys.path.insert(0, str(ROOT))
+            from training.mirror import read_heartbeat
+            heartbeat = read_heartbeat(drive / "checkpoints" / "t4-full")
+        except Exception:                                # noqa: BLE001
+            heartbeat = None
+    if heartbeat:
+        lines += ["## Last heartbeat on Drive (how far training really got)", "", "```",
+                  json.dumps(heartbeat, indent=2), "```", ""]
     train_status = REPORTS / "autopilot_train_status.json"
     if train_status.exists():
         lines += ["## Long-run status", "", "```",
