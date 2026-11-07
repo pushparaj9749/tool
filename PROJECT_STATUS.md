@@ -211,3 +211,30 @@ To make that impossible to misread again, every run now writes and prints
 date, torch/python, and whether the five durability markers are present. `stage_restore()`
 also prints the Drive mirror's contents before it decides. Tests: **76 passed**,
 `--self-test` PASS (`float16 bs16 seq512 accum1, 16136.6 tok/s, 8.78 GB`).
+
+## Update 2026-11-07 (04:00Z) — training paused at step 5,800; resume proven, not assumed
+
+Training is parked for the day at **step 5,800** (`ankitmahato5533@gmail.com` →
+`ankit-llm/checkpoints/t4-full/step5800.pt`, mirrored 19:58:19Z, verified against
+`latest.json`: 1,270,001,459 bytes). Nothing else will be trained today; tomorrow continues
+from that step.
+
+Three things were finished so that tomorrow is one cell:
+
+1. **The legacy Drive layout is now covered by tests.**
+   `tests/test_legacy_drive_layout.py` builds the *exact* 2026-11-06 layout — a 129-byte
+   legacy pointer plus step-tagged `step5600.pt` / `step5800.pt`, a stale sidecar and a
+   truncated `step6000.pt` — and then runs a real `training/pretrain.py` resume on it.
+   Result: `restored step5800.pt … resumed … at step 5800`, truncated copy ignored.
+   So the 5,800 steps are not just present on Drive, they are provably resumable.
+
+2. **`notebooks/PASTE_ONE_CELL.py` + a 3-line notebook cell.** The 2026-11-06 session ran a
+   three-day-old notebook copy; the launcher lives in git, hard-syncs to `origin/main`,
+   verifies `HEAD == git ls-remote origin main`, refuses to run if a durability marker is
+   missing, prints the Drive account, picks `resume` from Drive, runs one 60-min chunk and
+   prints the measured tail. `git fetch` is no longer best-effort.
+
+3. **`eval_every: 0` no longer crashes** (`step % 0` → ZeroDivisionError, hit while writing
+   the resume test). 0 now means "no evals", as intended.
+
+Tests: **78 passed**, `--self-test` PASS.

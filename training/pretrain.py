@@ -307,7 +307,7 @@ def main() -> None:
                         _watch_mirror(mirror, step, cfg)
                 running_loss = 0.0
 
-            if step % cfg["eval_every"] == 0:
+            if cfg["eval_every"] and step % cfg["eval_every"] == 0:   # 0 = evals off
                 metrics = evaluate(model, val_ds, cfg, device, dtype)
                 is_best = best_val is None or (metrics["val_loss"] < best_val)
                 if is_best:
