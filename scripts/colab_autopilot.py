@@ -109,6 +109,99 @@ def note(msg: str) -> None:
 
 
 # --------------------------------------------------------------------------- stages
+ARTIFACT_FILES = [
+    "tokenizer/ankit_bpe/tokenizer.json",
+    "data/processed/pretrain_train.bin",
+    "data/processed/pretrain_val.bin",
+    "data/processed/pretrain_test.bin",
+    "data/sft/sft_train.jsonl",
+    "data/sft/sft_val.jsonl",
+]
+
+
+def artifacts_cache_dir() -> Optional[Path]:
+    drive = drive_dir()
+    return (drive / "artifacts") if drive is not None else None
+
+
+def _manifest(root: Optional[Path] = None) -> Dict[str, int]:
+    root = root or ROOT
+    return {rel: (root / rel).stat().st_size
+            for rel in ARTIFACT_FILES if (root / rel).exists()}
+
+
+def cache_artifacts(cache: Optional[Path] = None, root: Optional[Path] = None) -> int:
+    """Copy the ~50 MB of built data to Drive once, so later sessions skip rebuilding.
+
+    A fresh Colab VM has to re-download and re-tokenise (10-20 min). In 60-minute
+    chunks that is a quarter of every session, so the artefacts are cached on Drive
+    and copied back in seconds.
+    """
+    root = root or ROOT
+    cache = cache if cache is not None else artifacts_cache_dir()
+    if cache is None:
+        return 0
+    manifest = _manifest(root)
+    if not manifest:
+        return 0
+    try:
+        (cache / "data/processed").mkdir(parents=True, exist_ok=True)
+        (cache / "data/sft").mkdir(parents=True, exist_ok=True)
+        (cache / "tokenizer/ankit_bpe").mkdir(parents=True, exist_ok=True)
+        existing = {}
+        pointer = cache / "manifest.json"
+        if pointer.exists():
+            try:
+                existing = json.loads(pointer.read_text(encoding="utf-8")).get("files", {})
+            except ValueError:
+                existing = {}
+        copied = 0
+        for rel, size in manifest.items():
+            if existing.get(rel) == size and (cache / rel).exists():
+                continue
+            shutil.copyfile(root / rel, cache / rel)
+            copied += 1
+        (cache / "manifest.json").write_text(
+            json.dumps({"files": manifest, "cached_at":
+                        time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}, indent=2) + "\n",
+            encoding="utf-8")
+        print(f"[autopilot] data cached on Drive ({len(manifest)} files, "
+              f"{sum(manifest.values())/1e6:.1f} MB, {copied} updated)")
+        return copied
+    except OSError as exc:
+        print(f"[autopilot] WARNING could not cache data on Drive: {exc}")
+        return 0
+
+
+def restore_artifacts(cache: Optional[Path] = None, root: Optional[Path] = None) -> list:
+    """Copy cached data back into this (fresh) VM. Returns the restored paths."""
+    root = root or ROOT
+    cache = cache if cache is not None else artifacts_cache_dir()
+    if cache is None or not (cache / "manifest.json").exists():
+        return []
+    try:
+        manifest = json.loads((cache / "manifest.json").read_text(encoding="utf-8"))
+    except ValueError:
+        return []
+    files = manifest.get("files", {})
+    restored = []
+    for rel, size in files.items():
+        src = cache / rel
+        if not src.exists() or src.stat().st_size != size:
+            print(f"[autopilot] cache miss/short for {rel} — will rebuild")
+            return []
+        dst = root / rel
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        tmp = dst.with_suffix(dst.suffix + ".partial")
+        shutil.copyfile(src, tmp)
+        tmp.replace(dst)
+        restored.append(rel)
+    if restored:
+        print(f"[autopilot] restored {len(restored)} data files from Drive cache "
+              f"({sum(files.values())/1e6:.1f} MB) — skipped the 10-20 min rebuild")
+    return restored
+
+
 def stage_prepare(force: bool = False) -> None:
     """Build data + tokenizer + token shards + SFT set if they are not already there."""
     note("1/8 prepare data + tokenizer")
@@ -121,8 +214,14 @@ def stage_prepare(force: bool = False) -> None:
     missing = [p for p in needed if not p.exists()]
     if not missing and not force:
         print("artefacts already present — skipping (use --force-prepare to rebuild)")
+        cache_artifacts()
         return
     print("missing:", [str(p.relative_to(ROOT)) for p in missing])
+    if not force and restore_artifacts():
+        missing = [p for p in needed if not p.exists()]
+        if not missing:
+            print("all artefacts restored from the Drive cache — no rebuild needed")
+            return
 
     if not (ROOT / "data/raw/iitb/IITB.en-hi-hi.txt").exists():
         sh(["bash", "scripts/download_data.sh"])
@@ -134,6 +233,7 @@ def stage_prepare(force: bool = False) -> None:
     py("data/build_token_shards.py")
     py("data/build_sft.py")
     py("data/validate_data.py")
+    cache_artifacts()          # next session in this Drive starts in seconds, not 15 min
 
 
 def stage_benchmark(quick: bool = False) -> Dict[str, object]:
@@ -546,12 +646,18 @@ def stage_train(choice: Dict[str, object], session_budget_min: int, steps: Optio
     # Colab kills the VM without warning. The margin after the budget covers the
     # final eval + save + the last Drive flush, so the newest checkpoint really lands
     # on Drive before the runtime is gone.
-    budget_sec = max(300, session_budget_min * 60 - 420)
-    # 8 h is still well under Colab's ~12 h ceiling and the old 5.5 h cap threw away
-    # 2.5 h of GPU time every session (that is a whole extra session every 2 runs).
+    # reserve enough of the budget to finish the last eval + save + Drive flush
+    tail = 180 if session_budget_min <= 90 else 420
+    budget_sec = max(180, session_budget_min * 60 - tail)
     budget_sec = min(budget_sec, MAX_SESSION_SEC)
-    print(f"[autopilot] session budget {budget_sec/60:.0f} min; checkpoints every 200 "
-          "steps with a background Drive mirror (training no longer waits for Drive)")
+    per_chunk = int(budget_sec * 1.7)           # measured ~1.7 steps/s on the T4
+    print(f"[autopilot] CHUNK budget {budget_sec/60:.0f} min (~{per_chunk:,} steps at the "
+          f"measured 1.7 steps/s); checkpoints every 200 steps with a background Drive "
+          "mirror")
+    if plan["max_steps"] and per_chunk:
+        print(f"[autopilot] {plan['max_steps']:,} steps target = about "
+              f"{-(-int(plan['max_steps']) // per_chunk)} chunks of this size; this chunk "
+              "starts from the newest checkpoint on Drive")
     rc, out = sh_stream([PY, "training/pretrain.py",
                          "--config", str(cfg_path.relative_to(ROOT)),
                          "--run-id", f"autopilot-full-{time.strftime('%H%M')}",
@@ -563,9 +669,45 @@ def stage_train(choice: Dict[str, object], session_budget_min: int, steps: Optio
               "mirror_lines": [ln for ln in out.splitlines() if ln.startswith("[mirror]")][-5:]}
     (REPORTS / "autopilot_train_status.json").write_text(
         json.dumps(status, indent=2) + "\n", encoding="utf-8")
+    _report_chunk_progress(plan)
     if oom:
         print("[autopilot] the long run hit CUDA OOM — the pilot config needs one more "
               "step down; re-run and the chooser will use the safer measured peak")
+
+
+def _report_chunk_progress(plan: Dict[str, object]) -> None:
+    """Say plainly where the run stands and how many chunks are left."""
+    step, tokens = None, None
+    pointer = ROOT / "checkpoints/t4-full/latest.json"
+    if pointer.exists():
+        try:
+            meta = json.loads(pointer.read_text(encoding="utf-8"))
+            step, tokens = int(meta.get("step", 0)), meta.get("tokens_seen")
+        except (ValueError, TypeError):
+            pass
+    total = int(plan.get("max_steps") or 0)
+    if step is None or not total:
+        print("[autopilot] chunk finished (progress unknown — no local checkpoint)")
+        return
+    pct = 100.0 * step / total
+    print("=" * 78)
+    print(f"[autopilot] CHUNK DONE — step {step:,} / {total:,} ({pct:.1f}%)"
+          + (f", {tokens:,} tokens" if tokens else ""))
+    if step < total:
+        print("[autopilot] isi cell ko dobara chalao (Run ▶) — nast chunk isi checkpoint se "
+              "shuru hoga")
+    else:
+        print("[autopilot] target poora ho gaya — ab SFT/eval ke liye `--mode sft` chal sakta hai")
+    print("=" * 78)
+    status = REPORTS / "autopilot_chunk_progress.json"
+    try:
+        status.write_text(json.dumps({"step": step, "max_steps": total, "percent": round(pct, 2),
+                                      "tokens_seen": tokens,
+                                      "updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ",
+                                                                  time.gmtime())},
+                                     indent=2) + "\n", encoding="utf-8")
+    except OSError:
+        pass
 
 
 def stage_sft(choice: Dict[str, object]) -> None:

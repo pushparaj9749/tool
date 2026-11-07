@@ -175,3 +175,19 @@ build gate now also requires the rolling-mirror + watchdog markers, so the step-
 **Also:** `max_steps` 244,141 → **64,000** (524M tokens ≈ 21.8 epochs over 24.1M tokens),
 printed and recorded as `reports/autopilot_training_plan.json` with a >30-epoch warning.
 Tests: **72 passed**, `--self-test` PASS.
+
+## Update 2026-11-07 (later) — 60-minute chunks
+
+Long sessions are the thing that keeps dying, so a run is now a **60-minute chunk**:
+`SESSION_BUDGET_MIN = 60` → ~53 min of training plus a tail for the final eval, save and
+Drive flush, then a clean `stop=time_budget` exit. Each chunk prints
+`CHUNK DONE — step X / 64,000 (Y%)`, writes `reports/autopilot_chunk_progress.json`, and the
+next chunk is simply the same Cell 3 again (~20-30 s to restore the checkpoint).
+
+To stop a chunk from being eaten by preparation, the built data (tokenizer + 3 token bins +
+SFT files, ~50 MB) is now **cached on Drive** with a `manifest.json`; a fresh VM restores it
+in seconds instead of re-downloading and re-tokenising for 10-20 minutes. A short or missing
+cache file falls back to a rebuild rather than training on bad data.
+
+60 min ≈ ~5,000 steps ⇒ the 64,000-step target is **~12-13 chunks**. Tests: **75 passed**,
+`--self-test` PASS.
