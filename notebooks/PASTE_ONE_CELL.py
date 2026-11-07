@@ -84,7 +84,9 @@ def sync_repo(repo_dir: Path) -> str:
     for attempt in (1, 2, 3):
         run(["git", "fetch", "-q", "--depth", "1", "origin", "main"], cwd=repo_dir,
             capture_output=True, check=False)
-        want = git("ls-remote", "origin", "refs/heads/main", cwd=repo_dir).split(" ")[0]
+        # ls-remote prints "<sha>\trefs/heads/main" - split on any whitespace
+        line = git("ls-remote", "origin", "refs/heads/main", cwd=repo_dir)
+        want = line.split()[0] if line.split() else ""
         if want:
             break
         time.sleep(3 * attempt)

@@ -141,3 +141,21 @@ def test_fresh_vm_resumes_from_the_legacy_layout_at_step_5800(tmp_path, tiny_art
     (ROOT / "configs/_legacy_layout.yaml").unlink(missing_ok=True)
     for f in (ROOT / "logs").glob("legacy-layout-*"):
         f.unlink(missing_ok=True)
+
+
+def test_launcher_parses_ls_remote_output():
+    """`git ls-remote` separates sha and ref with a TAB, not a space."""
+    line = "0eca28a5bf01575187569618ca8925bbddb353db\trefs/heads/main"
+    assert (line.split()[0] if line.split() else "") == "0eca28a5bf01575187569618ca8925bbddb353db"
+    src = (ROOT / "notebooks/PASTE_ONE_CELL.py").read_text(encoding="utf-8")
+    assert "line.split()[0]" in src, "launcher must parse ls-remote on whitespace"
+
+
+def test_notebook_cell_is_the_thin_launcher():
+    """Cell 3 must stay 3 lines of shell - a fat cell is what went stale."""
+    import json
+    nb = json.loads((ROOT / "notebooks/ANKIT_LLM_Colab_ONE_CLICK.ipynb").read_text(encoding="utf-8"))
+    code = "".join(nb["cells"][3]["source"])
+    assert "PASTE_ONE_CELL.py" in code
+    assert "reset -q --hard origin/main" in code
+    assert len([l for l in code.splitlines() if l.strip()]) <= 5, "cell grew back into logic"
