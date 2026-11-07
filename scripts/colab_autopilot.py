@@ -108,6 +108,82 @@ def note(msg: str) -> None:
     print(f"\n=== {msg} " + "=" * max(0, 60 - len(msg)), flush=True)
 
 
+# ------------------------------------------------------------------- build identity
+# file -> marker that only exists in a build carrying all the durability fixes
+BUILD_MARKERS = [
+    ("training/mirror.py", "LATEST_CKPT_NAME"),           # rolling latest.pt, no trash leak
+    ("training/pretrain.py", "_watch_mirror"),            # mirror watchdog + loud failure
+    ("training/checkpoint.py", "_to_cpu_copy"),           # GPU->CPU portable checkpoints
+    ("scripts/colab_autopilot.py", "_preflight_mirror"),  # Drive writability probe
+    ("scripts/colab_autopilot.py", "build_stamp"),        # this stamp itself
+]
+
+
+def _git(*args: str) -> str:
+    try:
+        return subprocess.run(["git", *args], cwd=ROOT, capture_output=True, text=True,
+                              timeout=15).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        return ""
+
+
+def build_stamp() -> Dict[str, object]:
+    """Identify the code that is *actually* running.
+
+    The 2026-11-06 session trained for an hour on an older checkout: it still wrote
+    step-tagged copies plus a `mirrored_at`-only `latest.json`, so nothing on Drive
+    could say which build had produced it and the resume logic had to guess. Writing
+    the git sha and the marker check next to the checkpoints turns that into a fact.
+    """
+    markers = {}
+    for rel, marker in BUILD_MARKERS:
+        try:
+            text = (ROOT / rel).read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            text = ""
+        markers[f"{rel}#{marker}"] = marker in text
+    try:
+        import torch
+        torch_version = torch.__version__
+    except Exception:                                       # noqa: BLE001
+        torch_version = None
+    return {
+        "written_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "sha": _git("rev-parse", "--short", "HEAD"),
+        "branch": _git("rev-parse", "--abbrev-ref", "HEAD"),
+        "commit_date": _git("log", "-1", "--format=%cI"),
+        "dirty": bool(_git("status", "--porcelain")),
+        "python": sys.version.split()[0],
+        "torch": torch_version,
+        "markers": markers,
+    }
+
+
+def write_build_stamp() -> Dict[str, object]:
+    """Print the build identity and keep a copy on Drive next to the checkpoints."""
+    stamp = build_stamp()
+    missing = [k for k, ok in stamp["markers"].items() if not ok]
+    stamp["missing_markers"] = missing
+    stamp["complete"] = not missing
+    print(f"[build] sha {stamp['sha'] or '?'} on branch {stamp['branch'] or '?'} | "
+          + ("all safety markers present" if not missing
+             else "MISSING " + ", ".join(missing)), flush=True)
+    text = json.dumps(stamp, indent=2) + "\n"
+    try:
+        REPORTS.mkdir(exist_ok=True)
+        (REPORTS / "build_stamp.json").write_text(text, encoding="utf-8")
+    except OSError as exc:
+        print(f"[build] WARNING could not write build_stamp.json: {exc}")
+    drive = drive_dir()
+    if drive is not None:
+        try:
+            (drive / "reports").mkdir(parents=True, exist_ok=True)
+            (drive / "reports" / "build_stamp.json").write_text(text, encoding="utf-8")
+        except OSError as exc:
+            print(f"[build] WARNING could not write build_stamp.json to Drive: {exc}")
+    return stamp
+
+
 # --------------------------------------------------------------------------- stages
 ARTIFACT_FILES = [
     "tokenizer/ankit_bpe/tokenizer.json",
@@ -552,6 +628,12 @@ def stage_restore(ckpt_dir: str = "checkpoints/t4-full") -> Optional[str]:
     if not mirror.exists():
         print(f"[autopilot] no mirror at {mirror} — first run for this checkpoint dir")
         return None
+
+    try:
+        names = sorted(p.name for p in mirror.iterdir())[:10]
+        print(f"[autopilot] Drive mirror {mirror.name} contains: {names}")
+    except OSError as exc:
+        print(f"[autopilot] cannot list {mirror}: {exc}")
 
     sys.path.insert(0, str(ROOT))
     from training.mirror import newest_mirrored_checkpoint, restore_from_mirror
@@ -1005,6 +1087,9 @@ def _main_impl() -> None:
     if args.self_test:
         self_test()
         return
+
+    # first thing in every real run: record which build is running, on Drive
+    write_build_stamp()
 
     if not cuda_available() and args.mode in ("all", "resume", "benchmark", "pilot", "train"):
         print("=" * 78)

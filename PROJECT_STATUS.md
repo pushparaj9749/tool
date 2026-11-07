@@ -191,3 +191,23 @@ cache file falls back to a rebuild rather than training on bad data.
 
 60 min ≈ ~5,000 steps ⇒ the 64,000-step target is **~12-13 chunks**. Tests: **75 passed**,
 `--self-test` PASS.
+
+## Update 2026-11-07 (03:40Z) — the "lost" run was found: step 5,800 is on Drive
+
+Two Google accounts were in play. The checks in this project were made against
+`ankitmahato4321@gmail.com` (which really does stop at `step400.pt`), while the Colab run
+was signed into **`ankitmahato5533@gmail.com`**, where `ankit-llm/checkpoints/t4-full` holds
+`step5600.pt` + **`step5800.pt` + `latest.json` (step 5800)** from 19:56–19:58Z on 2026-11-06.
+**Max recoverable step is 5,800, not 400** — the tail was never lost, it was just being read
+from the wrong Drive. Full read-out: `reports/DRIVE_AUDIT_2026_11_07.md`.
+
+That run used a **pre-PR#6 checkout** (proof on Drive: 129-byte `latest.json` with only
+`mirrored_at`, step-tagged copies, no `latest.pt`, no `heartbeat.json`, no `WHOAMI.txt`, no
+`artifacts/` cache), so its mirror is the old synchronous one. Measured from file timestamps:
+5,600 steps in 58 min = **1.60 steps/s**, loss `4000 → 3.8075`, `4500 → 3.7673`.
+
+To make that impossible to misread again, every run now writes and prints
+**`reports/build_stamp.json`** (local + `Drive/ankit-llm/reports/`): git sha, branch, commit
+date, torch/python, and whether the five durability markers are present. `stage_restore()`
+also prints the Drive mirror's contents before it decides. Tests: **76 passed**,
+`--self-test` PASS (`float16 bs16 seq512 accum1, 16136.6 tok/s, 8.78 GB`).
