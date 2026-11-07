@@ -808,7 +808,9 @@ def stage_sft(choice: Dict[str, object]) -> None:
         pts = sorted((ROOT / "checkpoints").rglob("*.pt"), key=lambda p: p.stat().st_mtime)
         init = str(pts[-1].relative_to(ROOT)) if pts else None
     if init is None:
-        print("[autopilot] no pretrained checkpoint found — skipping SFT")
+        print("[autopilot] NO PRETRAINED CHECKPOINT — SFT cannot start. Put the newest "
+              ".pt under checkpoints/ (e.g. checkpoints/t4-full/step5800.pt via "
+              "scripts/import_checkpoint.py) and re-run --mode sft")
         return
     print(f"[autopilot] SFT from {init}")
     import yaml
@@ -821,8 +823,18 @@ def stage_sft(choice: Dict[str, object]) -> None:
         cfg["mirror_dir"] = str(mirror)
     path = ROOT / "configs/_autogen_sft.yaml"
     path.write_text(yaml.safe_dump(cfg, sort_keys=False), encoding="utf-8")
-    py("training/finetune.py", "--config", "configs/_autogen_sft.yaml",
-       "--run-id", "autopilot-sft", check=False)
+    rc = py("training/finetune.py", "--config", "configs/_autogen_sft.yaml",
+            "--run-id", "autopilot-sft", check=False).returncode
+    out_dir = ROOT / cfg["checkpoint_dir"]
+    produced = sorted(out_dir.glob("*.pt")) if out_dir.exists() else []
+    if rc != 0 or not produced:
+        print(f"[autopilot] SFT FAILED (exit {rc}, {len(produced)} checkpoint(s) written). "
+              "Upar ka error dekho; config: configs/_autogen_sft.yaml")
+        return
+    best = max(produced, key=lambda p: p.stat().st_mtime)
+    print(f"[autopilot] SFT done -> {best.relative_to(ROOT)}")
+    print(f"[autopilot] chat: python inference/chat.py --checkpoint {best.relative_to(ROOT)} "
+          "--device cuda")
 
 
 def stage_eval() -> None:
@@ -1149,11 +1161,24 @@ def _main_impl() -> None:
                 bench = stage_benchmark(quick=True)
                 choice = choose_config(bench)
         stage_train(choice, args.session_budget_min, args.max_steps)
-    if args.mode == "sft" and choice is not None:
-        stage_sft(choice)                       # explicit request: run it
+    if args.mode == "sft":
+        # An explicit request must never be silently skipped. It was: `choice` is only set
+        # by the benchmark/pilot branches, so `--mode sft` fell straight through to the
+        # summary and printed nothing about SFT at all (2026-11-07).
+        if choice is None:
+            choice = load_choice()
+        if choice is None:
+            print("[autopilot] SFT needs a dtype/VRAM choice — measuring it now "
+                  "(~2 min; no guessing a VRAM config)")
+            bench = stage_benchmark(quick=True)
+            choice = choose_config(bench)
+        if not (ROOT / "data/sft/sft_train.jsonl").exists():
+            print("[autopilot] SFT data missing -> preparing it first")
+            stage_prepare()
+        stage_sft(choice)
     elif args.mode == "all":
-        ready = any((ROOT / c).exists() for c in ("checkpoints/t4-full/latest.json",
-                                                 "checkpoints/t4-pilot/latest.json"))
+        # any pretrained checkpoint counts, including one imported as step5800.pt
+        ready = bool(list((ROOT / "checkpoints").rglob("*.pt")))
         if choice is not None and pilot_ok and ready:
             stage_sft(choice)
         else:
