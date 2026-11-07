@@ -256,3 +256,64 @@ None of this has run on a real T4 yet. The throughput claim is now the modest on
 measurements support: ~1.7 steps/s, ~7 % mirror overhead, so an 8 h session should reach
 ~45k steps. Until a GPU session completes with a `heartbeat.json` on Drive, that is an
 estimate, not a result.
+
+---
+
+# Session 4 — the run saved fine, but into a different Google account
+
+## What the screenshots show
+
+At 07:32–07:33 IST (02:02–02:03Z on 2026-11-07) the notebook was at **step ~4,800**:
+
+```
+step    4000 loss=2.9410 lr=6.00e-04      [eval] step 4000 val_loss=3.8075
+[mirror] mirrored step4000.pt (1.27 ...   [eval] step 4500 val_loss=3.7673
+step    4800 loss=2.7177 lr=6.00e-04
+```
+
+So training was healthy (loss 2.88, val_loss falling 3.81 → 3.77) and the mirror was
+reporting **successful** copies every 200 steps. The `[mirror] mirrored stepNNNN.pt` line
+also identifies the build: that is the PR #6 async mirror (step-tagged files), not the
+rolling `latest.pt` of PR #8 — the run started before #8 was merged.
+
+## What the connected Drive shows
+
+Checked with freshly validated credentials (owner `ankitmahato4321@gmail.com`):
+
+* `modifiedTime > 2026-11-06T20:00Z` → **0 files**, anywhere in the Drive
+* `checkpoints/t4-full` → still just `step200.pt` + `step400.pt` from 11:23Z yesterday
+* search for `step3800` / `step4200` / `step4800` / `heartbeat` → **no results**
+* folders named `ankit-llm` → exactly **one**
+
+The same files cannot be both "mirrored successfully" and absent. So that Colab session is
+writing to **a different Google account's My Drive**. `drive.mount('/content/drive')` mounts
+whichever account the Colab session is signed in with; the code has no way to know which one
+it is, and neither do I from the outside.
+
+## Fix
+
+1. **Cell 2 now prints the account**: `DRIVE ACCOUNT: <email> | <name>`, the top level of
+   `My Drive`, and the contents of `checkpoints/t4-full`, and writes
+   `ankit-llm/WHOAMI.txt` into that Drive. One glance is enough.
+2. **Cell 3 re-prints the account** so it lands in the mirrored log, and its tail lists the
+   checkpoints that exist in the Drive it just wrote to.
+3. **Build gate tightened**: the notebook now requires `training/mirror.py: LATEST_CKPT_NAME`,
+   `training/pretrain.py: _watch_mirror` and `scripts/colab_autopilot.py: _preflight_mirror`,
+   so it will refuse the step-tagged build that leaks trash and has no heartbeat.
+
+## The cost, honestly
+
+The ~4,800 steps in that other Drive (~39M tokens, ~48 min of T4) are not lost - they are in
+a Drive I cannot see. Two ways forward, in the user's hands:
+
+* **Simplest**: run the notebook signed in as `ankitmahato4321@gmail.com` and resume from
+  **step 400** (yesterday's checkpoint). Loses ~4,800 steps ≈ 48 min of GPU time.
+* **Keeps them**: in the other account, share `ankit-llm/checkpoints/t4-full` with the main
+  account, download the newest `stepNNNN.pt` + `.json` (~1.27 GB), upload both into the main
+  account's `checkpoints/t4-full`, then resume. More work, no GPU time lost.
+
+## Also changed
+
+`max_steps` 244,141 → **64,000** (524M tokens ≈ 21.8 epochs over a 24.1M-token corpus).
+`stage_train()` now prints and records `reports/autopilot_training_plan.json`, and warns above
+30 epochs, so the target can never again be a number that means something it does not.

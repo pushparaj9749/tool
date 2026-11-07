@@ -1,12 +1,17 @@
-# ANKIT LLM v0.1 — Colab T4 FULL pretraining target (~2B tokens)
+# ANKIT LLM v0.1 — Colab T4 FULL pretraining target
 #
 # Same 97,435,392-parameter architecture. This config is resumable: the cosine
 # schedule is anchored to max_steps, so a Colab disconnect + resume continues on
 # exactly the same curve.
 #
-# Budget: 8 x 2 x 512 = 8,192 tokens/step x 244,141 steps = ~2.00B tokens.
-# On a T4 expect ~20-30k tokens/s -> ~19-28 GPU-hours -> 2-3 Colab sessions.
-# DO NOT start this before the pilot + benchmark are approved.
+# DATA-BOUND, NOT CHINCHILLA. The corpus is 24,100,344 train tokens, so:
+#   1 epoch          = 24,100,344 / 8,192  = 2,941 steps
+#   64,000 steps     = 524,288,000 tokens  = ~21.8 epochs  <- this config
+# A 2B-token run would be ~83 epochs over the same 24.1M tokens: that memorises the
+# corpus instead of learning the language. 20-25 epochs is the honest ceiling until
+# more data is acquired, and the cosine schedule is sized to match.
+# Budget: 16 x 1 x 512 = 8,192 tokens/step. Measured 13.7-14.7k tok/s on the T4
+# (1.7 steps/s) -> 64,000 steps = ~10.5 GPU-hours = ~2 Colab sessions.
 run_name: ankit-100m-t4-full
 model_config: configs/model.yaml
 tokenizer_dir: tokenizer/ankit_bpe
@@ -17,7 +22,7 @@ val_bin: data/processed/pretrain_val.bin
 batch_size: 8
 grad_accum_steps: 2
 seq_len: 512
-max_steps: 244141          # ~2.00B tokens (Chinchilla-style for 97.4M params)
+max_steps: 64000           # ~524M tokens = 21.8 epochs over 24.1M tokens (~2 sessions)
 learning_rate: 6.0e-4
 min_lr_ratio: 0.1
 warmup_steps: 2000

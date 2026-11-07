@@ -155,3 +155,23 @@ PASS (training exits 0, heartbeat still lands, alarm printed).
 
 **Not yet proven:** none of it has run on a real T4. `reports/T4_PILOT_INCIDENT.md`
 (Session 3) and `reports/SESSION3_RECOVERY.md` hold the full reconstruction.
+
+## Update 2026-11-07 — session 4 saved into the wrong Google account
+
+A run reached **step ~4,800** (loss 2.88, val_loss 3.8075 @4000 → 3.7673 @4500) and its log
+showed `[mirror] mirrored stepNNNN.pt` every 200 steps — copies reporting success.
+
+The connected Drive (validated credentials, `ankitmahato4321@gmail.com`) contains **nothing
+modified after 2026-11-06T20:00Z**: no `step4800`, no `step4200`, no `heartbeat.json`, still
+only `step200/step400` from yesterday, and exactly one `ankit-llm` folder. Both things cannot
+be true at once → that Colab session was signed into a **different Google account**, so its
+`/content/drive/MyDrive` was a different Drive.
+
+**Fix:** cell 2 now prints `DRIVE ACCOUNT: <email>` and writes `ankit-llm/WHOAMI.txt`; cell 3
+echoes it into the mirrored log and lists the checkpoints it actually wrote; the notebook's
+build gate now also requires the rolling-mirror + watchdog markers, so the step-tagged build
+(no heartbeat, trash leak) is refused.
+
+**Also:** `max_steps` 244,141 → **64,000** (524M tokens ≈ 21.8 epochs over 24.1M tokens),
+printed and recorded as `reports/autopilot_training_plan.json` with a >30-epoch warning.
+Tests: **72 passed**, `--self-test` PASS.
