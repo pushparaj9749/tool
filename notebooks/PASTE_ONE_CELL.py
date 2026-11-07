@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 import time
@@ -31,7 +32,7 @@ from pathlib import Path
 
 REPO = "https://github.com/pushparaj9749/tool.git"
 REPO_DIR = Path("/content/ankit-llm")
-DRIVE = Path("/content/drive/MyDrive/ankit-llm")
+DRIVE = Path(os.environ.get("ANKIT_DRIVE_DIR") or "/content/drive/MyDrive/ankit-llm")
 # a list, not a dict: two markers live in colab_autopilot.py and a dict would
 # silently drop one of them (it did, and the gate reported 4 instead of 5)
 MARKERS = [
