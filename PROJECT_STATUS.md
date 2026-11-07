@@ -291,3 +291,21 @@ LFS free tier is 1 GB/month, and Releases would mean a fresh 1.27 GB upload ever
 
 Tests: **91 passed** (7 new for import: link parsing, newest-file selection, pointer shape,
 resumable-layout integration, idempotency, env override), `--self-test` PASS.
+
+## Update 2026-11-07 (04:45Z) — `--mode sft` was a no-op; fixed
+
+The chat attempt printed only `[build] …` and `=== summary ===`. Cause: the dispatch was
+`if args.mode == "sft" and choice is not None`, but `choice` is only assigned by the
+benchmark/pilot branches — so an explicit `--mode sft` fell straight through to the summary
+**without ever calling `stage_sft()`**. An explicit request must never be silently dropped.
+
+- dispatch: `--mode sft` now resolves a choice (stored → quick benchmark → `choose_config`),
+  prepares SFT data if the jsonl is missing, then runs the stage
+- `stage_sft()` reports the finetune exit code, lists what was written, prints the chat
+  command for the produced checkpoint, and says `SFT FAILED` instead of pretending
+- `--mode all`'s "ready" test now accepts **any** `checkpoints/**/*.pt`, so an imported
+  `step5800.pt` qualifies (before, only `t4-full/latest.json` did)
+- `tests/test_sft_mode.py`: dispatch runs with/without a stored choice, loud refusal with no
+  checkpoint, loud failure on a crashed finetune
+
+Tests: **100 passed**, `--self-test` PASS.
