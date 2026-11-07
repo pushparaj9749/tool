@@ -255,3 +255,18 @@ it: `git ls-remote` output is TAB-separated (`split(" ")` sent `git reset --hard
 revision), and `MARKERS` as a dict silently dropped one of the two markers inside
 `colab_autopilot.py` (the gate said "4"). Both fixed and pinned by tests. **81 passed**,
 `--self-test` PASS.
+
+## Update 2026-11-07 (03:55Z) — "can I test the model now?" — yes, one cell
+
+`notebooks/TRY_MODEL.py` loads whatever checkpoint is best (SFT final → local t4-full → newest
+on Drive, restored with the same code the trainer uses) and prints what the model continues
+with, at two temperatures, plus an optional chat round trip. It writes `reports/model_tryout.md`
+and copies it to Drive. No training, no GPU requirement, no artefact download.
+
+Honest expectation, printed in the report itself: step 5,800 ≈ **2 epochs** has learned
+spelling, common words and short phrases. It **continues text**, it does not answer questions.
+Real chat needs the SFT stage on a much better base, so the notebook's "Chat try karo" snippet is
+now marked SFT-only.
+
+Tests: **84 passed** (`test_model_tryout.py` runs the whole path on a tiny CPU checkpoint:
+generation, chat mode, and the clear error when no checkpoint exists), `--self-test` PASS.
