@@ -238,3 +238,20 @@ Three things were finished so that tomorrow is one cell:
    the resume test). 0 now means "no evals", as intended.
 
 Tests: **78 passed**, `--self-test` PASS.
+
+## Update 2026-11-07 (03:50Z) — parked for the day at step 5,800
+
+Training stopped on purpose after **5,800 steps** (9% of 64,000). Source of truth:
+`reports/DAY_END_2026_11_07.md` (also on Drive as
+`ankit-llm/reports/DAY_END_2026_11_07.md`). Re-verified on Drive at 03:49Z: `step5800.pt`
+1,270,001,459 bytes matching `latest.json`, untouched since 19:58:19Z.
+
+Remaining: 58,200 steps ÷ 1.60 steps/s ≈ 10.1 h GPU ≈ **11 chunks**. Tomorrow = one cell,
+`notebooks/PASTE_ONE_CELL.py`, which hard-syncs `origin/main`, proves `HEAD == ls-remote`,
+gates on all five durability markers, and prints the Drive account before it trains.
+
+Two bugs were caught by dry-running that launcher against a fresh clone rather than trusting
+it: `git ls-remote` output is TAB-separated (`split(" ")` sent `git reset --hard` a bogus
+revision), and `MARKERS` as a dict silently dropped one of the two markers inside
+`colab_autopilot.py` (the gate said "4"). Both fixed and pinned by tests. **81 passed**,
+`--self-test` PASS.
