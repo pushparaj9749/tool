@@ -309,3 +309,24 @@ benchmark/pilot branches — so an explicit `--mode sft` fell straight through t
   checkpoint, loud failure on a crashed finetune
 
 Tests: **100 passed**, `--self-test` PASS.
+
+## Update 2026-11-07 (05:05Z) — Drive mount from a subprocess crashed the whole run
+
+`!python notebooks/PASTE_ONE_CELL.py` on a fresh VM died before training:
+
+```
+google/colab/drive.py … _message.blocking_request('request_auth', …)
+AttributeError: 'NoneType' object has no attribute 'kernel'
+```
+
+`drive.mount()` talks to the Colab front-end through the **IPython kernel**, so it only works
+inside a cell — never in a `!python` subprocess. Two changes:
+
+- `PASTE_ONE_CELL.mount_drive()`: if Drive is already mounted (or `ANKIT_DRIVE_DIR` points at
+  it) use it and skip mounting; if mounting is impossible, print the exact cell to run and
+  return instead of raising
+- notebook Cell 3 now mounts Drive **in the cell** before launching the script (and the
+  thin-launcher test asserts `drive.mount` is there)
+
+`tests/test_launcher_drive.py`: already-mounted path, missing-kernel path (no traceback,
+actionable message), and non-Colab path. Tests: **103 passed**, `--self-test` PASS.

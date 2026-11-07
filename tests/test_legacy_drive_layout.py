@@ -158,7 +158,9 @@ def test_notebook_cell_is_the_thin_launcher():
     code = "".join(nb["cells"][3]["source"])
     assert "PASTE_ONE_CELL.py" in code
     assert "reset -q --hard origin/main" in code
-    assert len([l for l in code.splitlines() if l.strip()]) <= 5, "cell grew back into logic"
+    # drive.mount() only works inside a cell - a subprocess cannot do it
+    assert "drive.mount" in code, "cell must mount Drive itself"
+    assert len([l for l in code.splitlines() if l.strip()]) <= 9, "cell grew back into logic"
 
 
 def test_launcher_checks_every_marker():
