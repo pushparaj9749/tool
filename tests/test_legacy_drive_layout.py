@@ -159,3 +159,18 @@ def test_notebook_cell_is_the_thin_launcher():
     assert "PASTE_ONE_CELL.py" in code
     assert "reset -q --hard origin/main" in code
     assert len([l for l in code.splitlines() if l.strip()]) <= 5, "cell grew back into logic"
+
+
+def test_launcher_checks_every_marker():
+    """Two markers live in colab_autopilot.py; a dict keyed by path would drop one."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "paste_one_cell", ROOT / "notebooks/PASTE_ONE_CELL.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    assert isinstance(mod.MARKERS, list), "MARKERS must be a list of (path, marker)"
+    assert len(mod.MARKERS) == 5
+    assert len({m for _, m in mod.MARKERS}) == 5
+    for rel, marker in mod.MARKERS:
+        assert marker in (ROOT / rel).read_text(encoding="utf-8", errors="replace"), \
+            f"{rel} lost its {marker} marker"

@@ -32,13 +32,15 @@ from pathlib import Path
 REPO = "https://github.com/pushparaj9749/tool.git"
 REPO_DIR = Path("/content/ankit-llm")
 DRIVE = Path("/content/drive/MyDrive/ankit-llm")
-MARKERS = {
-    "training/mirror.py": "LATEST_CKPT_NAME",            # rolling latest.pt, no trash leak
-    "training/pretrain.py": "_watch_mirror",             # mirror watchdog
-    "training/checkpoint.py": "_to_cpu_copy",            # portable checkpoints
-    "scripts/colab_autopilot.py": "_preflight_mirror",   # Drive writability probe
-    "scripts/colab_autopilot.py": "build_stamp",         # build identity on Drive
-}
+# a list, not a dict: two markers live in colab_autopilot.py and a dict would
+# silently drop one of them (it did, and the gate reported 4 instead of 5)
+MARKERS = [
+    ("training/mirror.py", "LATEST_CKPT_NAME"),           # rolling latest.pt, no trash leak
+    ("training/pretrain.py", "_watch_mirror"),            # mirror watchdog
+    ("training/checkpoint.py", "_to_cpu_copy"),           # portable checkpoints
+    ("scripts/colab_autopilot.py", "_preflight_mirror"),  # Drive writability probe
+    ("scripts/colab_autopilot.py", "build_stamp"),        # build identity on Drive
+]
 
 
 def run(cmd: list[str], cwd: Path | None = None, **kw) -> subprocess.CompletedProcess:
@@ -96,7 +98,7 @@ def sync_repo(repo_dir: Path) -> str:
     have = git("rev-parse", "HEAD", cwd=repo_dir)
     assert have == want, f"stale checkout: HEAD {have[:7]} != GitHub main {want[:7]}"
     missing = []
-    for rel, marker in MARKERS.items():
+    for rel, marker in MARKERS:
         text = (repo_dir / rel).read_text(encoding="utf-8", errors="replace") \
             if (repo_dir / rel).exists() else ""
         if marker not in text:
