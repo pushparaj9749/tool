@@ -190,9 +190,9 @@ const SKY_FRAG = /* glsl */ `
     // Warm the horizon on the sun's side. This is what makes dusk read.
     float sunAmount = max(dot(normalize(vec3(dir.x, 0.0, dir.z)), normalize(vec3(sunDir.x, 0.0, sunDir.z))), 0.0);
     float lowSun = pow(clamp(1.0 - abs(sunDir.y), 0.0, 1.0), 1.7);
-    col += sunColor * pow(sunAmount, 2.2) * lowSun * 1.15 * pow(1.0 - up, 1.6);
+    col += sunColor * pow(sunAmount, 2.2) * lowSun * 1.15 * pow(max(1.0 - up, 0.0), 1.6);
     // Narrow hot core right on the horizon beneath the sun.
-    col += sunColor * pow(sunAmount, 9.0) * lowSun * 0.9 * pow(1.0 - up, 3.0);
+    col += sunColor * pow(sunAmount, 9.0) * lowSun * 0.9 * pow(max(1.0 - up, 0.0), 3.0);
 
     // A soft belt of light just above the horizon on the anti-sun side.
     float belt = pow(1.0 - abs(h), 8.0) * (1.0 - sunAmount);
@@ -232,7 +232,7 @@ const SKY_FRAG = /* glsl */ `
 
     // Milky way: a broad band of faint noise along one great circle.
     float band = dot(dirS, normalize(vec3(0.35, 0.18, 0.92)));
-    float mw = exp(-pow(band * 3.1, 2.0));
+    float mw = exp(-band * band * 9.61);
     float grain = fbm(dirS.xz * 9.0 + dirS.y * 4.0);
     col += vec3(0.55, 0.62, 0.85) * mw * grain * alt * fade * 0.16;
 
@@ -286,7 +286,10 @@ const SKY_FRAG = /* glsl */ `
     // white. This has to MULTIPLY rather than mix: a lerp toward orange cannot
     // remove the blue that is already in a white cloud, so the result stayed
     // pale pink. Multiplying crushes the blue channel the way real light does.
-    float warm = pow(clamp(1.0 - abs(sunUp), 0.0, 1.0), 1.1);
+    // Golden hour is a BAND around the horizon. A one-sided ramp would stay
+    // pinned at 1.0 all night and light every midnight cloud pink, which is
+    // exactly what the 24-hour render caught.
+    float warm = smoothstep(-0.25, -0.05, sunUp) * (1.0 - smoothstep(0.05, 0.28, sunUp));
     float warmAmt = warm * (0.72 + silver * 0.28);
 
     // Orange light, strongest on the lit face.
@@ -340,6 +343,88 @@ const SKY_FRAG = /* glsl */ `
     return col * fade;
   }
 
+  // ---- high cirrus ------------------------------------------------------
+  // A fourth, far higher and much slower layer. Almost every real sky has a
+  // veil of cirrus above the cumulus, and without it a procedural sky reads as
+  // one noise field. Returns an opacity 0..1.
+  float cirrus(vec3 dir, float sunUp, vec3 sunColor) {
+    if (dir.y < 0.02) return 0.0;
+
+    // Much flatter projection: cirrus sits at roughly three times the altitude.
+    vec2 p = dir.xz / (dir.y * 0.30 + 0.55);
+    p *= 1.6;
+
+    // Stretched along one axis, because cirrus is wind-combed, not blobby.
+    vec2 q = vec2(p.x * 0.55 + uTime * 0.0032, p.y * 2.10 + uTime * 0.0011);
+    float v = fbm(q);
+    float w = fbm(q * 2.3 + 4.1);
+
+    // Thin, streaky, mostly transparent.
+    float d = smoothstep(0.50, 0.86, v * 0.75 + w * 0.25);
+    d *= smoothstep(0.02, 0.22, dir.y);
+
+    float warm = smoothstep(-0.25, -0.05, sunUp) * (1.0 - smoothstep(0.05, 0.28, sunUp));
+    vec3 c = mix(vec3(0.92, 0.94, 1.00), sunColor, 0.25 + warm * 0.55);
+    c = mix(c, vec3(1.00, 0.55, 0.30), warm * 0.55);
+
+    float nightAmt = 1.0 - smoothstep(-0.22, 0.16, sunUp);
+    c = mix(c, vec3(0.06, 0.07, 0.11), nightAmt * 0.9);
+
+    return d * 0.55;
+  }
+
+  // ---- crepuscular rays (god rays) --------------------------------------
+  // March a handful of samples toward the sun and accumulate the cloud gaps
+  // already computed along that path. Cheap fake volumetrics that read as
+  // sunlight punching through holes in the deck.
+  float crepuscular(vec3 dir, vec3 sunDir, float sunUp) {
+    if (sunUp < -0.05) return 0.0;
+
+    float sunDot = dot(dir, sunDir);
+    if (sunDot < 0.55) return 0.0;
+
+    float acc = 0.0;
+    float w = 1.0;
+    for (int i = 1; i <= 5; i++) {
+      float f = float(i) * 0.055;
+      vec3 d = normalize(dir + sunDir * f);
+      float elev = d.y * 0.62 + 0.30;
+      vec2 p = d.xz / elev * 1.15 + vec2(uTime * 0.0075, uTime * 0.0042);
+      float base = fbm(p);
+      // The GAPS are what let light through, hence 1.0 - density.
+      acc += (1.0 - smoothstep(uCloud, uCloud + 0.22, base)) * w;
+      w *= 0.68;
+    }
+    acc /= 2.90;
+
+    float mask = pow(clamp((sunDot - 0.55) / 0.45, 0.0, 1.0), 2.6);
+    return acc * mask * clamp(sunUp * 3.0, 0.0, 1.0);
+  }
+
+  // ---- rainbow ----------------------------------------------------------
+  // Faint 42-degree ring opposite the sun. Only shows when the sun is low,
+  // which is when real rainbows happen.
+  vec3 rainbow(vec3 dir, vec3 sunDir, float sunUp) {
+    float cosA = dot(dir, -sunDir);
+    float ang = degrees(acos(clamp(cosA, -1.0, 1.0)));
+
+    float band = exp(-pow(clamp((ang - 42.0) / 4.5, -12.0, 12.0), 2.0));
+    if (band < 0.002) return vec3(0.0);
+
+    // Hue runs across the band: red outside, violet inside.
+    float t = clamp((ang - 37.0) / 10.0, 0.0, 1.0);
+    vec3 spectrum = vec3(
+      smoothstep(0.00, 0.35, t) * (1.0 - smoothstep(0.55, 1.00, t)),
+      smoothstep(0.28, 0.62, t) * (1.0 - smoothstep(0.80, 1.00, t)),
+      smoothstep(0.55, 0.95, t)
+    );
+
+    float mask = clamp(1.0 - abs(sunUp), 0.0, 1.0);
+    mask *= smoothstep(0.0, 0.35, dir.y);
+
+    return spectrum * band * mask * 0.055;
+  }
+
   void main() {
     vec3 dir = normalize(vDir);
 
@@ -386,15 +471,29 @@ const SKY_FRAG = /* glsl */ `
     // Anamorphic streak: a thin horizontal flare across the sun.
     vec3 right = normalize(cross(uSunDir, vec3(0.0, 1.0, 0.0)) + 0.0001);
     float across = dot(dir, right);
-    float streak = exp(-pow(across * 26.0, 2.0)) * exp(-pow((sunDot - 0.995) * 90.0, 2.0));
+    float ac = across * 26.0;
+    float sg = (sunDot - 0.995) * 90.0;
+    float streak = exp(-ac * ac) * exp(-sg * sg);
     col += discCol * streak * 0.55 * dayAmt;
 
     // ---- clouds ---------------------------------------------------------
     // Clouds must occlude the stars. The cloud alpha is the opacity, so a full
     // lerp toward the cloud colour erases whatever was behind it; at night the
     // cloud colour is near-black, which is exactly right.
+    // ---- rainbow (behind the clouds, opposite the sun) -------------------
+    col += rainbow(dir, uSunDir, sunUp);
+
+    // ---- high cirrus -----------------------------------------------------
+    float cir = cirrus(dir, sunUp, uSunColor);
+    col = mix(col, col * 1.06 + uSunColor * 0.10, cir);
+
+    // ---- cumulus ---------------------------------------------------------
     vec4 cl = clouds(dir, uSunDir, uSunColor, sunUp);
     col = mix(col, cl.rgb, cl.a);
+
+    // ---- god rays --------------------------------------------------------
+    float shafts = crepuscular(dir, uSunDir, sunUp);
+    col += uSunColor * shafts * 0.42 * (1.0 - cl.a * 0.55);
 
     // ---- finishing ------------------------------------------------------
     // Slight dithering kills gradient banding on 8-bit displays.
@@ -431,6 +530,25 @@ let skyDome = null;
   sky.name = 'sky';
   scene.add(sky);
   skyDome = sky;
+
+  // If this shader ever fails to compile, three logs an error and renders a
+  // black sphere -- i.e. the player sees an entirely black sky with no clue
+  // why. Make that failure loud and give the scene a usable background.
+  sky.material.onBeforeCompile = () => {};
+  const probe = renderer.getContext?.();
+  if (probe && typeof probe.getShaderInfoLog === 'function') {
+    // Compile eagerly instead of on first render, so a broken shader is caught
+    // here where we can recover from it.
+    const mat = sky.material;
+    mat.needsUpdate = true;
+    try {
+      renderer.compile(scene, camera);
+    } catch (err) {
+      console.error('[sky] shader failed to compile, falling back:', err);
+      sky.visible = false;
+      scene.background = new THREE.Color(0x8fc4e4);
+    }
+  }
 }
 
 /**
@@ -495,7 +613,10 @@ function sampleDay(h) {
   return o;
 }
 
-let dayClock = 0.18;   // start mid-morning-ish, past the golden hour
+// dayClock 0.5 is noon, 0.25 sunrise, 0.75 sunset, 0.0/1.0 midnight.
+// 0.30 puts the sun ~0.31 above the horizon: a clear late-morning sky with
+// enough angle for long shadows. (v2.2 booted at 0.18, which is night.)
+let dayClock = 0.30;
 
 // Assigned when the composer is built much further down; declared here so
 // updateSky can retune bloom per time-of-day without a temporal-dead-zone trap.
@@ -536,7 +657,9 @@ function updateSky(dt) {
   // Scene-side agreement.
   renderer.toneMappingExposure = k.exp;
   scene.fog.color.copy(k.fog);
-  scene.background = null;              // the dome paints every pixel
+  // The dome paints every pixel, so a background colour is dead weight. But if
+  // the dome had to be disabled (shader failure) we must keep the fallback.
+  if (skyDome && skyDome.visible) scene.background = null;
 
   hemi.intensity = k.hemi;
   hemi.color.copy(k.horizon).lerp(_cWhite, 0.35);
@@ -2713,6 +2836,39 @@ bloom = new UnrealBloomPass(
 );
 composer.addPass(bloom);
 composer.addPass(new OutputPass());
+
+/* ------------------------------------------------------------------ errors */
+
+/**
+ * A WebGL context loss or a shader compile error otherwise looks exactly like
+ * "the game is a black screen". Surface it instead of leaving the player
+ * guessing.
+ */
+function showFatal(message) {
+  let el = document.getElementById('fatal');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'fatal';
+    el.style.cssText = [
+      'position:fixed', 'inset:auto 16px 16px 16px', 'z-index:9999',
+      'padding:14px 16px', 'border-radius:12px',
+      'background:rgba(120,16,24,.94)', 'border:1px solid rgba(255,120,130,.5)',
+      'color:#ffe6e8', 'font:600 13px/1.5 ui-monospace,Menlo,monospace',
+      'white-space:pre-wrap', 'box-shadow:0 8px 32px rgba(0,0,0,.5)',
+    ].join(';');
+    document.body.appendChild(el);
+  }
+  el.textContent = `Renderer error — the sky may be blank.\n${message}`;
+}
+
+window.addEventListener('error', (e) => {
+  if (e?.message && /webgl|shader|context/i.test(e.message)) showFatal(e.message);
+});
+
+renderer.domElement.addEventListener('webglcontextlost', (e) => {
+  e.preventDefault();
+  showFatal('WebGL context lost.');
+});
 
 /* ------------------------------------------------------------------ boot */
 

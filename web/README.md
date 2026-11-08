@@ -1,8 +1,19 @@
-# BATTLE ROYALE v2.1.1 — playable in the browser **and** on Android
+# BATTLE ROYALE v2.2.1 — playable in the browser **and** on Android
 
 A complete 16-fighter battle royale: three weapons, grenades, armour, four bot skill
 tiers, a shrinking safe zone and a kill feed. Runs in any modern browser with no build
 step, and ships as an installable **Android APK** built by GitHub Actions.
+
+**v2.2.1 fixes a black sky and adds three more sky layers.** v2.2 booted at
+`dayClock = 0.18`, which is *night* — the first thing a player saw was a black dome. It
+also ran `pow()` on bases that go negative, which is undefined in GLSL and renders as
+black pixels on many mobile GPUs.
+
+**v2.2 rebuilds the sky.** A live day/night cycle drives a full atmospheric dome:
+scattering, drifting cloud layers, a sun disc with an anamorphic streak, a phased moon, a
+rolling star field with a milky-way band, shooting stars, cirrus, god rays and a low-sun
+rainbow. Everything that should agree about the time of day — sky, fog, sun light,
+hemisphere light, bloom and exposure — is keyed off one clock.
 
 **v2.1 adds the default aim that v2 was missing** (Free-Fire-style view assist plus
 bullet magnetism), procedurally painted surface textures, a fully modelled fighter,
@@ -10,7 +21,7 @@ per-weapon viewmodels, a synthesised audio engine and a decorated map.
 
 ```
 Play in a browser  →  node web/serve.mjs 8080      then open localhost:8080
-Install on Android →  Releases → v2.1.1 → battle-royale-debug.apk
+Install on Android →  Releases → v2.2.1 → battle-royale-debug.apk
 ```
 
 ---
@@ -203,6 +214,58 @@ download any), so the assets are generated in code:
 
 ---
 
+### The sky
+
+One shader on a 300 m dome, plus a clock. Every colour was tuned by porting the fragment
+shader to NumPy and rendering it on the CPU, because there is no GPU in the build
+environment — that is how the black-sky boot and the pink-midnight clouds were caught.
+
+| Layer | What it does |
+|---|---|
+| Atmosphere | Warm horizon on the sun's side, deep blue zenith, ground bounce below the horizon |
+| Clouds | Two drifting fBm layers on a bounded dome projection, lit tops, dark bases, silver lining on the sunward rim |
+| Cirrus | A fourth, much higher and slower layer, stretched along one axis because cirrus is wind-combed |
+| Sun | Disc that reddens and swells near the horizon, layered glow, anamorphic horizontal streak |
+| God rays | Five-sample march toward the sun accumulating the cloud *gaps* — fake volumetrics, real look |
+| Rainbow | Faint 42° ring opposite the sun with a spectral ramp, only when the sun is low |
+| Moon | Phase-aware terminator, soft halo, only lit once the sun is down |
+| Stars | Hashed lattice with per-cell tint and twinkle, milky-way band |
+| Meteors | Three lanes on independent timers, great-circle sweeps |
+
+A **210-second day cycle** interpolates six keyframes through dawn → day → dusk → night.
+The same keyframes drive `toneMappingExposure`, the fog colour, the sun light's colour and
+intensity, the hemisphere light, the rim light and the bloom strength, so the scene and the
+sky always agree.
+
+Five rules the implementation follows, each learned the hard way:
+
+1. **Bounded cloud projection.** `p = dir.xz / (dir.y * 0.62 + 0.30)`. Without the
+   `+ 0.30` the UVs race to infinity at the horizon and the whole sky becomes flat grey fog.
+2. **Contrast before thresholding.** The measured fBm mean is 0.478 with most mass in
+   0.27–0.68. Thresholding that directly covers ~60 % of the sky in mush.
+3. **Golden hour multiplies, it does not mix.** A lerp toward orange cannot remove the
+   blue already in a white cloud, so sunset clouds stayed pale pink.
+4. **Golden hour is a band, not a ramp.**
+   `smoothstep(-0.25, -0.05, h) * (1 - smoothstep(0.05, 0.28, h))`. A one-sided
+   `(0.28 - h)` ramp stays saturated all night and lights every midnight cloud pink.
+5. **The dome travels with the camera.** The map is 160 × 160 and the camera far plane is
+   340 m, so standing at a corner puts the far side of a 300 m dome ~470 m away.
+
+**Start at `dayClock = 0.30`, not 0.18.** 0.5 is noon, 0.25 sunrise, 0.75 sunset. 0.18 is
+night. That single constant was the black sky.
+
+**Never call `pow()` on a base that can go negative.** It is undefined in GLSL; desktop
+drivers often return NaN which renders black, and mobile drivers are worse. Every `pow()`
+here has a `max()` or is a squared term written as `x * x`.
+
+`sampleDay()` and `updateSky()` reuse module-level scratch vectors and colours; nothing is
+allocated per frame.
+
+**Failure modes are visible, not silent.** A shader that fails to compile renders a black
+sphere with only a console line to explain why. The dome now compiles eagerly, falls back
+to a flat sky colour if it cannot, and any WebGL context loss or shader error raises an
+on-screen banner instead of leaving the player staring at a black screen.
+
 ## 4. Architecture
 
 ```
@@ -271,6 +334,25 @@ chain, camera math and raycaster. Asserts the scene builds (16 actors, 30 loot, 
 frames render through `EffectComposer`, `beginMatch()` works and a 45-second simulation
 shrinks the zone with finite state.
 
+### Sky verification — CPU render of the real shader
+
+There is no GPU in the build environment, so `SKY_FRAG` is ported to NumPy and rendered on
+the CPU. The port reads the keyframes and the boot clock straight out of `web/src/main.js`,
+so it cannot drift from the shipped shader. It renders the full 24-hour cycle and asserts
+that no frame collapses to black:
+
+```
+clock  sun.y   mean RGB       status
+ 0.00  -0.989  [19 17 24]     dark-night   <- a real night, not a bug
+ 0.25  +0.000  [161 93 64]    ok
+ 0.30  +0.287  [184 199 204]  ok           <- the boot frame
+ 0.50  +0.989  [191 206 210]  ok
+ 0.75  +0.000  [168 99 64]    ok
+ 0.90  -0.839  [19 18 26]     dark-night
+
+ALL FRAMES NON-BLACK
+```
+
 ### APK verification — inside CI
 
 `aapt2 dump badging` for the package id and sdk levels, a check that `assets/public/`
@@ -287,6 +369,10 @@ really contains the built game, and `apksigner verify` for the signature.
 | `aimDirection` disagreed with the movement convention (would fire backwards) | shot direction test |
 | Camera boom could clamp to zero length | scene test |
 | Armour could absorb more than it had | armour test |
+| Game booted at `dayClock = 0.18`, which is night — first frame was a black sky | 24-hour CPU cycle render |
+| `pow(1.0 - up, 1.6)`, `pow(band * 3.1, 2.0)`, `pow(across * 26.0, 2.0)` ran on negative bases — undefined in GLSL, black on mobile GPUs | shader audit |
+| Golden-hour ramp stayed at 1.0 all night, so midnight clouds glowed pink | 24-hour CPU cycle render |
+| The sky fallback set `scene.background`, which `updateSky()` erased on the next frame | code review |
 | `lookAtAngles` was called with four arguments, so the head geometry landed in `eyeHeight` and produced `NaN` pitch | aim-assist test |
 | A `NaN` candidate could win target selection (`NaN > x` is always false) | assist cone test |
 | The view assist converged on the **head**, so close-range shots sailed over the target (−32 % hits at 8 m) | assist benchmark |
