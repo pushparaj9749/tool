@@ -303,7 +303,9 @@ really contains the built game, and `apksigner verify` for the signature.
 - Physics is 2.5-D: cover blocks shots by height, but there is no falling or stairs.
 - The textures are procedural, not authored art. They are a large step up from flat
   vertex colours, but they are not a substitute for a real texture set.
-- Footstep audio is not implemented; gunfire, impacts and the HUD are.
+- Footsteps, rain and ambient wind are not implemented; gunfire, impacts and the HUD are.
+- Clouds are a shaded dome, not true volumetrics — the two drift layers give some
+  parallax, but there are no light shafts through the gaps.
 - No multiplayer, no persistence, no settings menu.
 - The APK is debug-signed. Publishing to Google Play needs the release keystore secrets
   above and an AAB (`./gradlew bundleRelease`).

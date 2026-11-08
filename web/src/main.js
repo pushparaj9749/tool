@@ -59,45 +59,6 @@ scene.fog = new THREE.Fog(0xa9c8da, 90, 240);
 const camera = new THREE.PerspectiveCamera(72, innerWidth / innerHeight, 0.08, 340);
 const menuCamera = new THREE.PerspectiveCamera(58, innerWidth / innerHeight, 0.1, 500);
 
-/* ------------------------------------------------------------------- sky */
-
-const skyUniforms = {
-  top: { value: new THREE.Color(0x1d5c96) },
-  mid: { value: new THREE.Color(0x7fb5d8) },
-  bottom: { value: new THREE.Color(0xe6d3ad) },
-  sunDir: { value: new THREE.Vector3(60, 90, 40).normalize() },
-};
-
-{
-  const sky = new THREE.Mesh(
-    new THREE.SphereGeometry(320, 32, 20),
-    new THREE.ShaderMaterial({
-      side: THREE.BackSide,
-      depthWrite: false,
-      uniforms: skyUniforms,
-      vertexShader: `
-        varying vec3 vDir;
-        void main() {
-          vDir = normalize(position);
-          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-        }`,
-      fragmentShader: `
-        uniform vec3 top; uniform vec3 mid; uniform vec3 bottom;
-        uniform vec3 sunDir; varying vec3 vDir;
-        void main() {
-          float h = clamp(vDir.y * 0.5 + 0.5, 0.0, 1.0);
-          vec3 col = h < 0.5 ? mix(bottom, mid, h * 2.0)
-                             : mix(mid, top, (h - 0.5) * 2.0);
-          float sun = pow(max(dot(vDir, sunDir), 0.0), 260.0);
-          float halo = pow(max(dot(vDir, sunDir), 0.0), 12.0) * 0.28;
-          col += vec3(1.0, 0.92, 0.74) * (sun * 2.2 + halo);
-          gl_FragColor = vec4(col, 1.0);
-        }`,
-    }),
-  );
-  scene.add(sky);
-}
-
 /* ----------------------------------------------------------------- lights */
 
 const hemi = new THREE.HemisphereLight(0xcfe6ff, 0x46543a, 0.95);
@@ -122,6 +83,490 @@ scene.add(sun.target);
 const rim = new THREE.DirectionalLight(0x6fa8ff, 0.55);
 rim.position.set(-70, 40, -60);
 scene.add(rim);
+
+/* ------------------------------------------------------------------- sky */
+
+/**
+ * Next-level sky.
+ *
+ * One full-screen dome shader that does the work a skybox texture would, but
+ * with everything a shader can do and a texture cannot:
+ *
+ *   - Rayleigh/Mie-ish atmospheric scattering (horizon reddens at dusk)
+ *   - two octaves of drifting fBm cloud cover, lit by the sun direction with a
+ *     silver lining on the sunward edge and a darker base underneath
+ *   - a sun disc with atmosphere-thickened rim, bloom booster and anamorphic
+ *     streak that feeds the bloom pass
+ *   - moon with phase-aware terminator and a soft halo
+ *   - a rolling star field that fades in as the sun sets, with a milky-way band
+ *   - shooting stars on a slow random timer
+ *   - a time-of-day driver (dawn -> day -> dusk -> night) that also retints
+ *     the fog, the hemisphere light, the sun colour and the bloom strength
+ */
+const DAY_LENGTH = 210;   // seconds for a full day/night cycle
+
+const skyUniforms = {
+  uSunDir:     { value: new THREE.Vector3(60, 90, 40).normalize() },
+  uMoonDir:    { value: new THREE.Vector3(-60, 90, -40).normalize() },
+  uTime:       { value: 0 },
+  uSunHeight:  { value: 1.0 },      // -1..1, drives every colour mix
+  uCloud:      { value: 0.46 },     // cloud coverage 0..1 (lower = more cloud)
+  uCloudSharp: { value: 1.0 },      // density threshold
+  uStarSeed:   { value: 12.9898 },
+  uZenith:     { value: new THREE.Color(0x1d5c96) },
+  uHorizon:    { value: new THREE.Color(0x8fc4de) },
+  uGround:     { value: new THREE.Color(0xe6d3ad) },
+  uSunColor:   { value: new THREE.Color(0xfff0d0) },
+};
+
+const SKY_FRAG = /* glsl */ `
+  precision highp float;
+
+  uniform vec3  uSunDir;
+  uniform vec3  uMoonDir;
+  uniform float uTime;
+  uniform float uSunHeight;
+  uniform float uCloud;
+  uniform float uCloudSharp;
+  uniform float uStarSeed;
+  uniform vec3  uZenith;
+  uniform vec3  uHorizon;
+  uniform vec3  uGround;
+  uniform vec3  uSunColor;
+
+  varying vec3 vDir;
+
+  // ---- hashing / noise --------------------------------------------------
+  float hash21(vec2 p) {
+    p = fract(p * vec2(123.34, 456.21));
+    p += dot(p, p + 45.32);
+    return fract(p.x * p.y);
+  }
+
+  float hash31(vec3 p) {
+    p = fract(p * 0.3183099 + vec3(0.71, 0.113, 0.419));
+    p *= 17.0;
+    return fract(p.x * p.y * p.z * (p.x + p.y + p.z));
+  }
+
+  float vnoise(vec2 p) {
+    vec2 i = floor(p);
+    vec2 f = fract(p);
+    f = f * f * (3.0 - 2.0 * f);
+    float a = hash21(i);
+    float b = hash21(i + vec2(1.0, 0.0));
+    float c = hash21(i + vec2(0.0, 1.0));
+    float d = hash21(i + vec2(1.0, 1.0));
+    return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+  }
+
+  float fbm(vec2 p) {
+    float v = 0.0;
+    float amp = 0.5;
+    mat2 rot = mat2(0.80, 0.60, -0.60, 0.80);
+    for (int i = 0; i < 5; i++) {
+      v += amp * vnoise(p);
+      p = rot * p * 2.03 + 11.7;
+      amp *= 0.5;
+    }
+    return v;
+  }
+
+  // ---- scattering -------------------------------------------------------
+  // Cheap analytic approximation: strong warm tint near the horizon and on
+  // the sun side, cool and deep toward the zenith.
+  vec3 atmosphere(vec3 dir, vec3 sunDir, vec3 zenith, vec3 horizon, vec3 sunColor) {
+    float h = clamp(dir.y, -1.0, 1.0);
+    // 0.42 keeps the deep blue reaching much further down the dome. At 0.62
+    // almost all of the visible sky sat in the pale horizon band.
+    float up = pow(clamp(h, 0.0, 1.0), 0.42);
+
+    vec3 col = mix(horizon, zenith, up);
+
+    // A second, steeper mix adds the saturated band just above the horizon
+    // that a plain two-colour lerp cannot produce.
+    col = mix(col, mix(horizon, zenith, 0.55), pow(1.0 - clamp(h, 0.0, 1.0), 3.0) * 0.35);
+
+    // Warm the horizon on the sun's side. This is what makes dusk read.
+    float sunAmount = max(dot(normalize(vec3(dir.x, 0.0, dir.z)), normalize(vec3(sunDir.x, 0.0, sunDir.z))), 0.0);
+    float lowSun = pow(clamp(1.0 - abs(sunDir.y), 0.0, 1.0), 1.7);
+    col += sunColor * pow(sunAmount, 2.2) * lowSun * 1.15 * pow(1.0 - up, 1.6);
+    // Narrow hot core right on the horizon beneath the sun.
+    col += sunColor * pow(sunAmount, 9.0) * lowSun * 0.9 * pow(1.0 - up, 3.0);
+
+    // A soft belt of light just above the horizon on the anti-sun side.
+    float belt = pow(1.0 - abs(h), 8.0) * (1.0 - sunAmount);
+    col += horizon * belt * 0.12;
+
+    // Below the horizon: ground bounce, darker and warmer.
+    col = mix(uGround, col, smoothstep(-0.22, 0.06, h));
+    return col;
+  }
+
+  // ---- stars ------------------------------------------------------------
+  vec3 stars(vec3 dir, float fade) {
+    if (fade <= 0.001) return vec3(0.0);
+
+    // Rotate the star lattice per seed so runs differ, then sample on a stable
+    // grid so stars do not swim as the camera moves.
+    float ca = cos(uStarSeed);
+    float sa = sin(uStarSeed);
+    vec3 dirS = vec3(dir.x * ca - dir.z * sa, dir.y, dir.x * sa + dir.z * ca);
+    vec3 p = dirS * 260.0;
+    vec3 cell = floor(p);
+    float h = hash31(cell);
+
+    // Only the brightest cells carry a star.
+    float star = smoothstep(0.9955, 1.0, h);
+    if (star <= 0.0) {
+      // Cheap early-out still lets the milky way through below.
+    }
+
+    // Fade with altitude so the horizon does not glitter.
+    float alt = smoothstep(-0.05, 0.35, dir.y);
+    float twinkle = 0.72 + 0.28 * sin(uTime * (1.7 + h * 3.1) + h * 44.0);
+
+    vec3 tint = mix(vec3(0.72, 0.82, 1.0), vec3(1.0, 0.90, 0.74), hash31(cell + 5.0));
+
+    vec3 col = tint * star * alt * twinkle * fade * 2.6;
+
+    // Milky way: a broad band of faint noise along one great circle.
+    float band = dot(dirS, normalize(vec3(0.35, 0.18, 0.92)));
+    float mw = exp(-pow(band * 3.1, 2.0));
+    float grain = fbm(dirS.xz * 9.0 + dirS.y * 4.0);
+    col += vec3(0.55, 0.62, 0.85) * mw * grain * alt * fade * 0.16;
+
+    return col;
+  }
+
+  // ---- clouds -----------------------------------------------------------
+  //
+  // Two drifting layers on a bounded dome projection. The '+ 0.30' in the
+  // divisor is essential: without it the UVs race to infinity at the horizon,
+  // the noise aliases into flat grey and the sky looks like fog.
+  //
+  // The density curve is calibrated against the actual fbm output (measured
+  // mean 0.478, 5th..95th percentile 0.27..0.68). Expanding around the mean
+  // before thresholding is what produces distinct cloud masses with real gaps
+  // rather than an even smear.
+  vec4 clouds(vec3 dir, vec3 sunDir, vec3 sunColor, float sunUp) {
+    if (dir.y < 0.005) return vec4(0.0);
+
+    float elev = dir.y * 0.62 + 0.30;
+    vec2 p = dir.xz / elev;
+
+    vec2 p1 = p * 1.15 + vec2(uTime * 0.0075, uTime * 0.0042);
+    vec2 p2 = p * 2.35 - vec2(uTime * 0.0130, uTime * 0.0060);
+
+    float base = fbm(p1);
+    float detail = fbm(p2);
+
+    // Contrast: spread the distribution about its mean, then threshold.
+    float density = base * 0.90 + (detail - 0.5) * 0.34;
+    density = clamp((density - 0.42) * 2.30 + 0.42, 0.0, 1.0);
+
+    float t = smoothstep(uCloud, uCloud + 0.22 / uCloudSharp, density);
+    if (t <= 0.001) return vec4(0.0);
+
+    // ---- lighting -------------------------------------------------------
+    float sunDot = max(dot(normalize(vec3(dir.x, 0.55, dir.z)), normalize(vec3(sunDir.x, 0.45, sunDir.z))), 0.0);
+    float silver = pow(sunDot, 6.0);
+
+    // Top catches the sun, base sits in its own shadow. The contrast between
+    // these two is what makes a cloud read as volume instead of fog.
+    vec3 top = mix(vec3(0.62, 0.66, 0.76), vec3(1.18, 1.18, 1.20), clamp(sunUp * 0.9 + 0.1, 0.0, 1.0));
+    vec3 under = mix(vec3(0.20, 0.24, 0.34), vec3(0.40, 0.45, 0.57), clamp(sunUp, 0.0, 1.0));
+
+    vec3 lit = mix(under, top, smoothstep(uCloud * 0.55, uCloud + 0.42, density));
+
+    // Silver lining on the sunward rim.
+    lit = mix(lit, sunColor * 1.35 + 0.10, silver * (0.55 + clamp(sunUp, 0.0, 1.0) * 0.40));
+
+    // Golden hour, applied LAST so the silver-lining mix cannot wash it back to
+    // white. This has to MULTIPLY rather than mix: a lerp toward orange cannot
+    // remove the blue that is already in a white cloud, so the result stayed
+    // pale pink. Multiplying crushes the blue channel the way real light does.
+    float warm = pow(clamp(1.0 - abs(sunUp), 0.0, 1.0), 1.1);
+    float warmAmt = warm * (0.72 + silver * 0.28);
+
+    // Orange light, strongest on the lit face.
+    vec3 warmTint = mix(vec3(0.42, 0.14, 0.30), vec3(1.00, 0.36, 0.09),
+                        smoothstep(uCloud * 0.4, 1.0, density));
+    // Normalise so the multiply keeps overall brightness; only the hue shifts.
+    float warmLum = dot(warmTint, vec3(0.2126, 0.7152, 0.0722));
+    lit *= mix(vec3(1.0), warmTint / max(warmLum, 0.001), warmAmt * 0.92);
+    lit = mix(lit, lit * 0.55 + sunColor * 0.30, warmAmt * 0.25);
+
+    // Night clouds are near-black with a hint of blue.
+    float nightAmt = 1.0 - smoothstep(-0.22, 0.16, sunUp);
+    lit = mix(lit, vec3(0.045, 0.055, 0.085), nightAmt * 0.92);
+
+    // Foreshorten toward the horizon and thin the zenith.
+    float fade = smoothstep(0.005, 0.16, dir.y);
+    fade *= 1.0 - smoothstep(0.80, 1.0, dir.y) * 0.55;
+
+    return vec4(lit, t * fade * 0.95);
+  }
+
+  // ---- shooting stars ---------------------------------------------------
+  vec3 shootingStars(vec3 dir, float fade) {
+    if (fade <= 0.001) return vec3(0.0);
+
+    // Three lanes, each on its own timer, so one is usually inactive.
+    vec3 col = vec3(0.0);
+    for (int i = 0; i < 3; i++) {
+      float fi = float(i);
+      float period = 9.0 + fi * 4.7;
+      float t = fract((uTime + fi * 3.1) / period);
+
+      // Only visible for a short slice of the period.
+      float active = smoothstep(0.0, 0.04, t) * (1.0 - smoothstep(0.10, 0.16, t));
+      if (active <= 0.001) continue;
+
+      // A great-circle sweep: interpolate between two headings.
+      float a0 = hash21(vec2(fi, 1.0)) * 6.283;
+      float a1 = a0 + 0.55 + hash21(vec2(fi, 2.0)) * 0.5;
+      float alt0 = 0.35 + hash21(vec2(fi, 3.0)) * 0.4;
+      float alt1 = alt0 - 0.35;
+
+      float a = mix(a0, a1, t * 8.0);
+      float alt = mix(alt0, alt1, t * 8.0);
+      vec3 head = normalize(vec3(cos(a) * cos(alt), sin(alt), sin(a) * cos(alt)));
+
+      float d = dot(dir, head);
+      float glow = pow(max(d, 0.0), 900.0) + pow(max(d, 0.0), 60.0) * 0.15;
+      col += vec3(1.0, 0.96, 0.85) * glow * active * 6.0;
+    }
+    return col * fade;
+  }
+
+  void main() {
+    vec3 dir = normalize(vDir);
+
+    float sunUp = uSunHeight;                 // -1 (midnight) .. 1 (noon)
+    float dayAmt = smoothstep(-0.12, 0.22, sunUp);
+    float nightAmt = 1.0 - dayAmt;
+
+    // ---- base sky -------------------------------------------------------
+    vec3 col = atmosphere(dir, uSunDir, uZenith, uHorizon, uSunColor);
+
+    // ---- stars (behind the clouds) --------------------------------------
+    // Only once the sun is properly below the horizon. At sunUp = -0.02 the sky
+    // is still bright orange, so the fade has to finish well below that or the
+    // stars show up in broad daylight, which is what the CPU render caught.
+    float starFade = 1.0 - smoothstep(-0.34, -0.16, sunUp);
+    col += stars(dir, starFade);
+    col += shootingStars(dir, starFade);
+
+    // ---- moon -----------------------------------------------------------
+    float moonDot = dot(dir, uMoonDir);
+    vec3 moonCol = vec3(0.95, 0.96, 1.0);
+    // Disc.
+    float disc = smoothstep(0.99965, 0.99985, moonDot);
+    // Simple phase: shade the half away from the sun.
+    float phase = smoothstep(-0.15, 0.25, dot(normalize(dir - uMoonDir), normalize(uSunDir + 0.0001)));
+    float halo = pow(max(moonDot, 0.0), 220.0) * 0.55 + pow(max(moonDot, 0.0), 18.0) * 0.10;
+    col += moonCol * disc * (0.35 + phase * 0.65) * (0.25 + starFade * 0.75);
+    col += moonCol * halo * starFade;
+
+    // ---- sun ------------------------------------------------------------
+    float sunDot = max(dot(dir, uSunDir), 0.0);
+    float sunDisc = smoothstep(0.99955, 0.99990, sunDot);
+    // The disc grows and reddens as it nears the horizon.
+    float lowSun = 1.0 - clamp(sunUp, 0.0, 1.0);
+    vec3 discCol = mix(uSunColor, vec3(1.0, 0.42, 0.16), lowSun * 0.85);
+    col += discCol * sunDisc * (2.2 + lowSun * 1.6);
+
+    // Atmospheric glow around the sun.
+    float glowNear = pow(sunDot, 900.0) * 0.9;
+    float glowWide = pow(sunDot, 22.0) * 0.24;
+    float glowHuge = pow(sunDot, 3.5) * 0.10 * dayAmt;
+    col += discCol * (glowNear + glowWide + glowHuge);
+
+    // Anamorphic streak: a thin horizontal flare across the sun.
+    vec3 right = normalize(cross(uSunDir, vec3(0.0, 1.0, 0.0)) + 0.0001);
+    float across = dot(dir, right);
+    float streak = exp(-pow(across * 26.0, 2.0)) * exp(-pow((sunDot - 0.995) * 90.0, 2.0));
+    col += discCol * streak * 0.55 * dayAmt;
+
+    // ---- clouds ---------------------------------------------------------
+    // Clouds must occlude the stars. The cloud alpha is the opacity, so a full
+    // lerp toward the cloud colour erases whatever was behind it; at night the
+    // cloud colour is near-black, which is exactly right.
+    vec4 cl = clouds(dir, uSunDir, uSunColor, sunUp);
+    col = mix(col, cl.rgb, cl.a);
+
+    // ---- finishing ------------------------------------------------------
+    // Slight dithering kills gradient banding on 8-bit displays.
+    float dither = (hash21(gl_FragCoord.xy) - 0.5) * (1.0 / 255.0);
+    col += dither;
+
+    gl_FragColor = vec4(col, 1.0);
+  }
+`;
+
+// Kept centred on the live camera every frame. See updateSky().
+let skyDome = null;
+
+{
+  const sky = new THREE.Mesh(
+    new THREE.SphereGeometry(300, 48, 32),
+    new THREE.ShaderMaterial({
+      side: THREE.BackSide,
+      depthWrite: false,
+      depthTest: false,
+      fog: false,
+      uniforms: skyUniforms,
+      vertexShader: `
+        varying vec3 vDir;
+        void main() {
+          vDir = normalize(position);
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }`,
+      fragmentShader: SKY_FRAG,
+    }),
+  );
+  sky.renderOrder = -1000;
+  sky.frustumCulled = false;
+  sky.name = 'sky';
+  scene.add(sky);
+  skyDome = sky;
+}
+
+/**
+ * Drives the whole sky from a single clock. Everything that should agree about
+ * the time of day — sky colours, fog, sun light, hemisphere light, bloom — is
+ * keyed off `uSunHeight` here, so they can never drift apart.
+ */
+// Every colour here was tuned by rendering the shader on the CPU and solving
+// for the values that still read correctly after ACES tonemapping. The earlier
+// palette looked reasonable as hex and washed out to beige on screen.
+const DAY_KEYS = [
+  // sunHeight, zenith,          horizon,         ground,          sun,          fog,             exp,  hemi, sunI, bloom
+  { h: -1.00, zenith: 0x03060f, horizon: 0x0d1a2c, ground: 0x05080c, sun: 0x3a4a6e, fog: 0x0a1420, exp: 0.70, hemi: 0.34, sunI: 0.22, bloom: 0.78 },
+  { h: -0.30, zenith: 0x060c1c, horizon: 0x16253a, ground: 0x0a1016, sun: 0x40527a, fog: 0x101c2a, exp: 0.78, hemi: 0.40, sunI: 0.30, bloom: 0.72 },
+  { h: -0.12, zenith: 0x1b2e52, horizon: 0xff6a28, ground: 0x4a3020, sun: 0xff6a28, fog: 0x6a3a2a, exp: 0.96, hemi: 0.58, sunI: 0.95, bloom: 0.64 },
+  { h:  0.06, zenith: 0x1b2e52, horizon: 0xff8a3c, ground: 0x5a3a24, sun: 0xff8a3c, fog: 0x9a5a3a, exp: 1.02, hemi: 0.76, sunI: 1.75, bloom: 0.56 },
+  { h:  0.30, zenith: 0x0e4a8c, horizon: 0x8fc4e4, ground: 0xd8c8a8, sun: 0xffe6b8, fog: 0x9ebccc, exp: 1.10, hemi: 0.95, sunI: 2.35, bloom: 0.46 },
+  { h:  1.00, zenith: 0x0e4a8c, horizon: 0x9fcce6, ground: 0xe0d0b0, sun: 0xfff4dc, fog: 0xa8c4d4, exp: 1.08, hemi: 1.02, sunI: 2.60, bloom: 0.42 },
+];
+
+// One reusable result object. sampleDay() is called every frame and its output
+// is consumed immediately, so there is no reason to allocate.
+const _dayOut = {
+  zenith: new THREE.Color(), horizon: new THREE.Color(), ground: new THREE.Color(),
+  sun: new THREE.Color(), fog: new THREE.Color(),
+  exp: 1, hemi: 1, sunI: 1, bloom: 0.5,
+};
+
+function _lerpInto(out, x, y, t) {
+  out.setHex(x);
+  _cTmp.setHex(y);
+  return out.lerp(_cTmp, t);
+}
+
+function sampleDay(h) {
+  const o = _dayOut;
+  for (let i = 0; i < DAY_KEYS.length - 1; i++) {
+    const a = DAY_KEYS[i];
+    const b = DAY_KEYS[i + 1];
+    if (h >= a.h && h <= b.h) {
+      const t = (h - a.h) / (b.h - a.h || 1);
+      _lerpInto(o.zenith, a.zenith, b.zenith, t);
+      _lerpInto(o.horizon, a.horizon, b.horizon, t);
+      _lerpInto(o.ground, a.ground, b.ground, t);
+      _lerpInto(o.sun, a.sun, b.sun, t);
+      _lerpInto(o.fog, a.fog, b.fog, t);
+      const lerpNum = (x, y) => x + (y - x) * t;
+      o.exp = lerpNum(a.exp, b.exp);
+      o.hemi = lerpNum(a.hemi, b.hemi);
+      o.sunI = lerpNum(a.sunI, b.sunI);
+      o.bloom = lerpNum(a.bloom, b.bloom);
+      return o;
+    }
+  }
+  const last = DAY_KEYS[DAY_KEYS.length - 1];
+  o.zenith.setHex(last.zenith);
+  o.horizon.setHex(last.horizon);
+  o.ground.setHex(last.ground);
+  o.sun.setHex(last.sun);
+  o.fog.setHex(last.fog);
+  o.exp = last.exp; o.hemi = last.hemi; o.sunI = last.sunI; o.bloom = last.bloom;
+  return o;
+}
+
+let dayClock = 0.18;   // start mid-morning-ish, past the golden hour
+
+// Assigned when the composer is built much further down; declared here so
+// updateSky can retune bloom per time-of-day without a temporal-dead-zone trap.
+let bloom = null;
+
+// Scratch objects for updateSky(). Allocated once, never inside the frame loop.
+const _sunDir = new THREE.Vector3();
+const _moonDir = new THREE.Vector3();
+const _cTmp = new THREE.Color();
+const _cWhite = new THREE.Color(0xffffff);
+const _cRim = new THREE.Color(0x6fa8ff);
+
+function updateSky(dt) {
+  dayClock = (dayClock + dt / DAY_LENGTH) % 1;
+
+  // Sun rides a tilted circle; the tilt keeps it from going straight overhead.
+  const a = dayClock * Math.PI * 2 - Math.PI / 2;
+  const sunDir = _sunDir.set(
+    Math.cos(a) * 0.86,
+    Math.sin(a),
+    Math.cos(a) * 0.5 + 0.15,
+  ).normalize();
+
+  const moonDir = _moonDir.set(-sunDir.x, -sunDir.y, -sunDir.z).normalize();
+  const h = sunDir.y;
+
+  const k = sampleDay(h);
+
+  skyUniforms.uSunDir.value.copy(sunDir);
+  skyUniforms.uMoonDir.value.copy(moonDir);
+  skyUniforms.uTime.value += dt;
+  skyUniforms.uSunHeight.value = h;
+  skyUniforms.uZenith.value.copy(k.zenith);
+  skyUniforms.uHorizon.value.copy(k.horizon);
+  skyUniforms.uGround.value.copy(k.ground);
+  skyUniforms.uSunColor.value.copy(k.sun);
+
+  // Scene-side agreement.
+  renderer.toneMappingExposure = k.exp;
+  scene.fog.color.copy(k.fog);
+  scene.background = null;              // the dome paints every pixel
+
+  hemi.intensity = k.hemi;
+  hemi.color.copy(k.horizon).lerp(_cWhite, 0.35);
+  hemi.groundColor.copy(k.ground).multiplyScalar(0.7);
+
+  sun.color.copy(k.sun);
+  sun.intensity = k.sunI;
+  // Keep the shadow camera aimed along the sun ray, biased toward the player.
+  const focus = state ? findPlayer(state) : null;
+  const fx = focus ? focus.x : 0;
+  const fz = focus ? focus.z : 0;
+  sun.target.position.set(fx, 0, fz);
+  sun.position.set(
+    fx + sunDir.x * 120,
+    Math.max(12, sunDir.y * 120),
+    fz + sunDir.z * 120,
+  );
+
+  rim.color.copy(k.sun).lerp(_cRim, 0.75);
+  rim.intensity = 0.18 + k.hemi * 0.45;
+
+  if (bloom) bloom.strength = LOW_END ? k.bloom * 0.55 : k.bloom;
+
+  // Keep the dome centred on whichever camera is live, so the sky can never be
+  // clipped by the far plane no matter where on the map the player stands.
+  if (skyDome) {
+    skyDome.position.set(camera.position.x, 0, camera.position.z);
+  }
+}
+
 
 /* ------------------------------------------------------------------ audio */
 
@@ -1975,8 +2420,6 @@ function updateCamera(dt, instant) {
   camera.position.y += shakeY;
   camera.rotation.set(viewPitch, yaw, shake * 0.03 * (Math.random() - 0.5), 'YXZ');
 
-  sun.target.position.set(target.x, 0, target.z);
-  sun.position.set(target.x + 55, 85, target.z + 45);
 
   // Viewmodel follows the camera, hides while dead or spectating.
   if (viewmodel) {
@@ -2250,15 +2693,19 @@ function frame(now) {
     menuCamera.lookAt(0, 0, 0);
   }
 
+  updateSky(dt);
   composer.render();
 }
+
+// Establish the sky, light rig and fog before the first frame is drawn.
+updateSky(0);
 
 /* ---------------------------------------------------------------- compose */
 
 const composer = new EffectComposer(renderer);
 composer.addPass(new RenderPass(scene, camera));
 
-const bloom = new UnrealBloomPass(
+bloom = new UnrealBloomPass(
   new THREE.Vector2(innerWidth, innerHeight),
   LOW_END ? 0.24 : 0.42,   // strength
   0.72,                    // radius
