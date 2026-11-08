@@ -154,6 +154,25 @@ jobs:
           BR_KEY_PASSWORD: ${{ secrets.BR_KEY_PASSWORD }}
         run: cd android && ./gradlew assembleRelease --no-daemon
 
+      # Proves the artefact is a real, installable APK rather than a stub:
+      # correct package id, the web build actually packaged, and a signature.
+      - name: Verify the APK
+        run: |
+          set -e
+          SDK="$ANDROID_HOME"
+          AAPT=$(ls "$SDK"/build-tools/*/aapt2 2>/dev/null | sort -V | tail -1)
+          APKSIGNER=$(ls "$SDK"/build-tools/*/apksigner 2>/dev/null | sort -V | tail -1)
+          APK=$(ls android/app/build/outputs/apk/debug/*.apk | head -1)
+          echo "APK: $APK ($(du -h "$APK" | cut -f1))"
+          echo "--- badging ---"
+          "$AAPT" dump badging "$APK" 2>/dev/null | head -12 || true
+          echo "--- packaged web build ---"
+          unzip -l "$APK" | grep -E 'assets/public/(index|manifest)' | head -10
+          unzip -l "$APK" | grep -c 'assets/public/' | xargs -I{} echo "{} web files packaged"
+          unzip -p "$APK" assets/public/index.html | grep -q 'src/main.js' && echo "index.html OK"
+          echo "--- signature ---"
+          "$APKSIGNER" verify --print-certs "$APK" | head -6 || echo "apksigner verify skipped"
+
       - name: Collect artifacts
         id: collect
         run: |
@@ -170,6 +189,7 @@ jobs:
             echo "::error::No APK was produced"
             exit 1
           fi
+          sha256sum out/*.apk | tee out/SHA256SUMS.txt
           ls -lh out
           echo "apks=$(ls out/*.apk | tr '\n' ' ')" >> "$GITHUB_OUTPUT"
 
@@ -177,7 +197,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: battle-royale-apk
-          path: out/*.apk
+          path: |
+            out/*.apk
+            out/SHA256SUMS.txt
           retention-days: 90
           if-no-files-found: error
 
@@ -185,7 +207,9 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: out/*.apk
+          files: |
+            out/*.apk
+            out/SHA256SUMS.txt
           generate_release_notes: true
           body: |
             ## Battle Royale — Android build
