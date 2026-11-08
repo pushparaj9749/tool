@@ -29,8 +29,17 @@ import {
   applyVertical,
   traceShot,
   firePlayerShot,
-  damageActor,
+  applyDamage,
   botFire,
+  throwGrenade,
+  updateGrenades,
+  explodeGrenade,
+  switchWeapon,
+  falloffScale,
+  weaponOf,
+  WEAPONS,
+  WEAPON_ORDER,
+  spectate,
   updateBot,
   updateLoot,
   updatePlayer,
@@ -60,7 +69,9 @@ function duelState(seed = 7) {
   state.world.obstacles = [];
   const player = findPlayer(state);
   player.x = 0; player.z = 0; player.health = 100; player.alive = true;
-  state.player.ammo = CONFIG.magazineSize;
+  player.armor = 0;                       // isolate raw damage in tests
+  player.weapon = 'rifle';
+  state.player.ammo = WEAPONS.rifle.magazine;
   state.player.reserve = 100;
   return state;
 }
@@ -80,6 +91,16 @@ function addBot(state, x, z) {
     targetId: null,
     wanderAngle: 0,
     lastDamageAt: -99,
+    lastAttackerId: null,
+    lastDamageAngle: 0,
+    killStreak: 0,
+    armor: 0,
+    weapon: 'rifle',
+    ammo: 30,
+    sprinting: false,
+    crouching: false,
+    accuracy: 0.62,
+    damageScale: 1,
   };
   state.actors.push(bot);
   return bot;
@@ -272,9 +293,12 @@ test('hudModel reports the starting state', () => {
   assert.equal(hud.alive, CONFIG.botCount + 1);
   assert.equal(hud.kills, 0);
   assert.equal(hud.health, 100);
-  assert.equal(hud.ammo, CONFIG.magazineSize);
+  assert.equal(hud.ammo, WEAPONS.rifle.magazine);
   assert.equal(hud.reserve, CONFIG.startAmmoReserve);
   assert.equal(hud.medkits, CONFIG.startMedkits);
+  assert.equal(hud.weapon, 'rifle');
+  assert.equal(hud.grenades, 2);
+  assert.equal(hud.playerAlive, true);
   assert.equal(hud.reloading, false);
   assert.equal(hud.finished, false);
   assert.equal(hud.outsideZone, false);
@@ -370,7 +394,7 @@ test('a buffered jump is not replayed on landing', () => {
 test('traceShot finds a bot straight ahead', () => {
   const state = duelState();
   const bot = addBot(state, 0, -10); // directly north (-Z)
-  const hit = traceShot(state, 0, 1.35, 0, 0, 0, -1, 1, CONFIG.weaponRange);
+  const hit = traceShot(state, 0, 1.35, 0, 0, 0, -1, 1, WEAPONS.rifle.range);
   assert.equal(hit.kind, 'actor');
   assert.equal(hit.actorId, bot.id);
   close(hit.t, 10, 0.05);
@@ -379,7 +403,7 @@ test('traceShot finds a bot straight ahead', () => {
 test('traceShot misses when off axis', () => {
   const state = duelState();
   addBot(state, 10, -10);
-  const hit = traceShot(state, 0, 1.35, 0, 0, 0, -1, 1, CONFIG.weaponRange);
+  const hit = traceShot(state, 0, 1.35, 0, 0, 0, -1, 1, WEAPONS.rifle.range);
   assert.equal(hit.kind, 'miss');
 });
 
@@ -388,7 +412,7 @@ test('cover blocks the shot', () => {
   const bot = addBot(state, 0, -20);
   state.world.obstacles = [{ kind: 'building', x: 0, z: -10, hx: 3, hz: 3, height: 6 }];
 
-  const hit = traceShot(state, 0, 1.35, 0, 0, 0, -1, 1, CONFIG.weaponRange);
+  const hit = traceShot(state, 0, 1.35, 0, 0, 0, -1, 1, WEAPONS.rifle.range);
   assert.equal(hit.kind, 'cover');
   close(hit.t, 7, 0.05);
   assert.equal(hit.actorId, null);
@@ -401,7 +425,7 @@ test('low cover does NOT block a shot aimed above it', () => {
   state.world.obstacles = [{ kind: 'cover', x: 0, z: -10, hx: 3, hz: 3, height: 1.3 }];
 
   // Aim slightly upward so the ray clears the 1.3 m block.
-  const hit = traceShot(state, 0, 1.35, 0, 0, 0.02, -1, 1, CONFIG.weaponRange);
+  const hit = traceShot(state, 0, 1.35, 0, 0, 0.02, -1, 1, WEAPONS.rifle.range);
   assert.equal(hit.kind, 'actor');
   assert.equal(hit.actorId, bot.id);
 });
@@ -429,7 +453,7 @@ test('firePlayerShot consumes ammo, respects the fire interval and damages', () 
   assert.equal(state.player.ammo, startAmmo - 1);
 
   // After the interval it fires again.
-  state.time += CONFIG.fireInterval;
+  state.time += WEAPONS.rifle.fireInterval;
   const third = firePlayerShot(state, 0, 0);
   assert.ok(third);
   assert.equal(state.player.ammo, startAmmo - 2);
@@ -443,13 +467,13 @@ test('headshots do more damage than body shots', () => {
   const dy = 1.6 - CONFIG.playerEyeHeight;
   const pitch = Math.atan2(dy, 10);
 
-  const head = traceShot(state, 0, CONFIG.playerEyeHeight, 0, 0, Math.sin(pitch), -Math.cos(pitch), 1, CONFIG.weaponRange);
+  const head = traceShot(state, 0, CONFIG.playerEyeHeight, 0, 0, Math.sin(pitch), -Math.cos(pitch), 1, WEAPONS.rifle.range);
   assert.equal(head.kind, 'actor');
   assert.equal(head.actorId, bot.id);
   assert.ok(head.y - bot.y > 1.5, `headshot height check failed: ${head.y}`);
 
   // The same shot at chest height is a body shot.
-  const body = traceShot(state, 0, CONFIG.playerEyeHeight, 0, 0, -0.04, -1, 1, CONFIG.weaponRange);
+  const body = traceShot(state, 0, CONFIG.playerEyeHeight, 0, 0, -0.04, -1, 1, WEAPONS.rifle.range);
   assert.equal(body.kind, 'actor');
   assert.ok(body.y - bot.y <= 1.5, `body shot read as a headshot: ${body.y}`);
 
@@ -462,7 +486,7 @@ test('killing a bot grants a kill and bonus ammo, never negative health', () => 
   const player = findPlayer(state);
   const reserveBefore = state.player.reserve;
 
-  damageActor(state, bot, 500, player, state.time);
+  applyDamage(state, bot, 500, player, state.time);
 
   assert.equal(bot.alive, false);
   assert.equal(bot.health, 0);
@@ -475,10 +499,10 @@ test('damaging an already-dead actor does nothing', () => {
   const state = duelState();
   const bot = addBot(state, 0, -10);
   const player = findPlayer(state);
-  damageActor(state, bot, 500, player, state.time);
+  applyDamage(state, bot, 500, player, state.time);
   const kills = state.player.kills;
 
-  damageActor(state, bot, 500, player, state.time);
+  applyDamage(state, bot, 500, player, state.time);
   assert.equal(state.player.kills, kills, 'double kill on one corpse');
   assert.equal(state.player.reserve, 100 + CONFIG.killAmmoBonus);
 });
@@ -487,7 +511,7 @@ test('player death is reported as ELIMINATED', () => {
   const state = duelState();
   const player = findPlayer(state);
   addBot(state, 0, -10);
-  damageActor(state, player, 200, null, state.time);
+  applyDamage(state, player, 200, null, state.time);
 
   step(state, defaultInput(), { yaw: 0, pitch: 0 }, 1 / 60);
   assert.equal(state.finished, true);
@@ -499,7 +523,7 @@ test('killing the last bot wins the match', () => {
   const state = duelState();
   const bot = addBot(state, 0, -10);
   const player = findPlayer(state);
-  damageActor(state, bot, 500, player, state.time);
+  applyDamage(state, bot, 500, player, state.time);
 
   step(state, defaultInput(), { yaw: 0, pitch: 0 }, 1 / 60);
   assert.equal(state.finished, true);
@@ -597,21 +621,21 @@ test('reload moves ammo from reserve and takes time', () => {
   state.player.reserve = 40;
 
   assert.equal(playerReload(state), true);
-  assert.equal(state.player.reloading, CONFIG.reloadDuration);
+  assert.equal(state.player.reloading, WEAPONS.rifle.reloadDuration);
 
   // Reload is a no-op while one is already running.
   assert.equal(playerReload(state), false);
 
   for (let i = 0; i < 200; i++) step(state, defaultInput(), { yaw: 0, pitch: 0 }, 1 / 60);
 
-  assert.equal(state.player.ammo, CONFIG.magazineSize);
-  assert.equal(state.player.reserve, 40 - (CONFIG.magazineSize - 5));
+  assert.equal(state.player.ammo, WEAPONS.rifle.magazine);
+  assert.equal(state.player.reserve, 40 - (WEAPONS.rifle.magazine - 5));
   assert.equal(state.player.reloading, 0);
 });
 
 test('reload refuses on a full magazine or empty reserve', () => {
   const state = duelState();
-  state.player.ammo = CONFIG.magazineSize;
+  state.player.ammo = WEAPONS.rifle.magazine;
   assert.equal(playerReload(state), false);
 
   state.player.ammo = 0;
@@ -654,9 +678,9 @@ test('loot is picked up once and grants the right reward', () => {
   player.x = 0; player.z = 0;
 
   state.loot = [
-    { id: 1, x: 0.5, z: 0, y: 0.5, medical: false, taken: false },
-    { id: 2, x: 0, z: 0.5, y: 0.5, medical: true, taken: false },
-    { id: 3, x: 50, z: 50, y: 0.5, medical: false, taken: false },
+    { id: 1, x: 0.5, z: 0, y: 0.5, kind: 'ammo', taken: false },
+    { id: 2, x: 0, z: 0.5, y: 0.5, kind: 'medical', taken: false },
+    { id: 3, x: 50, z: 50, y: 0.5, kind: 'ammo', taken: false },
   ];
 
   const reserve = state.player.reserve;
@@ -717,7 +741,7 @@ test('stepping a finished match is a no-op', () => {
   const state = duelState();
   const player = findPlayer(state);
   addBot(state, 0, -10);
-  damageActor(state, player, 500, null, state.time);
+  applyDamage(state, player, 500, null, state.time);
   step(state, defaultInput(), { yaw: 0, pitch: 0 }, 1 / 60);
   assert.equal(state.finished, true);
 
@@ -730,12 +754,12 @@ test('stepping a finished match is a no-op', () => {
 test('restart produces a fresh, playable match', () => {
   const state = newState(31);
   const player = findPlayer(state);
-  damageActor(state, player, 500, null, state.time);
+  applyDamage(state, player, 500, null, state.time);
 
   const fresh = restart(state);
   assert.equal(fresh.finished, false);
   assert.equal(fresh.player.kills, 0);
-  assert.equal(fresh.player.ammo, CONFIG.magazineSize);
+  assert.equal(fresh.player.ammo, WEAPONS.rifle.magazine);
   assert.equal(aliveCount(fresh), CONFIG.botCount + 1);
   assert.equal(findPlayer(fresh).health, 100);
 });
@@ -780,4 +804,425 @@ test('no NaN leaks into the state after a long run', () => {
   }
   assert.ok(Number.isFinite(state.player.ammo));
   assert.ok(Number.isFinite(state.player.reserve));
+});
+
+/* ==========================================================================
+ * v2 features: weapons, armour, grenades, kill feed, spectator, bot tiers
+ * ========================================================================== */
+
+test('every weapon in the table is internally consistent', () => {
+  for (const id of WEAPON_ORDER) {
+    const w = WEAPONS[id];
+    assert.equal(w.id, id);
+    assert.ok(w.name.length > 0);
+    assert.ok(w.magazine > 0 && w.reserveMax >= w.magazine);
+    assert.ok(w.fireInterval > 0 && w.reloadDuration > 0);
+    assert.ok(w.range > 0 && w.pellets >= 1 && w.spread >= 0);
+    assert.ok(w.headDamage > w.bodyDamage, `${id}: headshot must hurt more`);
+    assert.ok(w.falloff > 0 && w.falloff < w.range, `${id}: falloff outside range`);
+    assert.ok(w.falloffFloor > 0 && w.falloffFloor < 1);
+  }
+  assert.deepEqual(WEAPON_ORDER, ['rifle', 'smg', 'shotgun']);
+});
+
+test('damage falls off with distance and never below the floor', () => {
+  const rifle = WEAPONS.rifle;
+  assert.equal(falloffScale(rifle, 0), 1);
+  assert.equal(falloffScale(rifle, rifle.falloff), 1);
+
+  const mid = falloffScale(rifle, (rifle.falloff + rifle.range) / 2);
+  assert.ok(mid < 1 && mid > rifle.falloffFloor, `unexpected mid falloff ${mid}`);
+
+  close(falloffScale(rifle, rifle.range), rifle.falloffFloor, 1e-6);
+  assert.equal(falloffScale(rifle, 10_000), rifle.falloffFloor);
+});
+
+test('the shotgun fires pellets and the rifle fires one bullet', () => {
+  const state = duelState();
+  addBot(state, 0, -8);
+  const player = findPlayer(state);
+  player.weapon = 'shotgun';
+  state.player.ammo = 6;
+
+  const pellets = firePlayerShot(state, 0, 0);
+  assert.equal(pellets.length, WEAPONS.shotgun.pellets);
+  assert.equal(state.player.ammo, 5);
+
+  const state2 = duelState();
+  addBot(state2, 0, -8);
+  findPlayer(state2).weapon = 'rifle';
+  const single = firePlayerShot(state2, 0, 0);
+  assert.equal(single.length, 1);
+});
+
+test('switching weapons cycles the table and blocks the next shot briefly', () => {
+  const state = duelState();
+  const player = findPlayer(state);
+
+  assert.equal(player.weapon, 'rifle');
+  assert.equal(switchWeapon(state, 1), 'smg');
+  assert.equal(switchWeapon(state, 1), 'shotgun');
+  assert.equal(switchWeapon(state, 1), 'rifle', 'cycle must wrap');
+  assert.equal(switchWeapon(state, -1), 'shotgun', 'reverse must wrap');
+
+  // A fresh weapon starts empty and the swap enforces a short delay.
+  assert.equal(player.ammo, 0);
+  const blocked = firePlayerShot(state, 0, 0);
+  assert.equal(blocked, null, 'fired during the weapon-swap delay');
+});
+
+test('armour absorbs damage before health and breaks when depleted', () => {
+  const state = duelState();
+  const bot = addBot(state, 0, -10);
+
+  bot.armor = 100;
+  bot.health = 100;
+  applyDamage(state, bot, 40, findPlayer(state), state.time, 'rifle', false);
+
+  // Half of 40 should be eaten by armour.
+  assert.equal(bot.health, 80);
+  assert.equal(bot.armor, 80);
+
+  // Reset so this half of the test is independent of the first.
+  bot.armor = 10;
+  bot.health = 100;
+  applyDamage(state, bot, 40, findPlayer(state), state.time, 'rifle', false);
+  assert.equal(bot.armor, 0, 'armour should be gone');
+  // Armour wants to absorb 50 % of 40 (= 20) but only has 10 left, so it
+  // absorbs all 10 and the remaining 30 hits health.
+  assert.equal(bot.health, 70, 'leftover damage must hit health');
+});
+
+test('armour absorbs less on headshots', () => {
+  const a = duelState();
+  const botA = addBot(a, 0, -10);
+  botA.armor = 100; botA.health = 100;
+  applyDamage(a, botA, 50, findPlayer(a), a.time, 'rifle', false);
+
+  const b = duelState();
+  const botB = addBot(b, 0, -10);
+  botB.armor = 100; botB.health = 100;
+  applyDamage(b, botB, 50, findPlayer(b), b.time, 'rifle', true);
+
+  assert.ok(botB.health < botA.health, 'headshot must bypass more armour');
+});
+
+test('damage records the attacker and direction for the HUD', () => {
+  const state = duelState();
+  const bot = addBot(state, 0, -10);
+  const player = findPlayer(state);
+  player.armor = 0;
+
+  applyDamage(state, player, 10, bot, state.time, 'smg', false);
+
+  assert.equal(player.lastAttackerId, bot.id);
+  assert.ok(Number.isFinite(player.lastDamageAngle));
+  assert.equal(state.player.damageIndicators.length, 1);
+  assert.ok(state.player.damageFlash > 0);
+});
+
+test('killing a bot adds a kill feed entry with weapon and headshot flag', () => {
+  const state = duelState();
+  const bot = addBot(state, 0, -10);
+  const player = findPlayer(state);
+
+  applyDamage(state, bot, 500, player, state.time, 'shotgun', true);
+
+  assert.equal(state.player.killFeed.length, 1);
+  const entry = state.player.killFeed[0];
+  assert.equal(entry.killer, 'YOU');
+  assert.equal(entry.weapon, 'shotgun');
+  assert.equal(entry.headshot, true);
+  assert.equal(state.player.kills, 1);
+});
+
+test('the kill feed is capped at five entries', () => {
+  const state = duelState();
+  const player = findPlayer(state);
+  for (let i = 0; i < 8; i++) {
+    const bot = addBot(state, 20 + i, 20);
+    applyDamage(state, bot, 500, player, state.time, 'rifle', false);
+  }
+  assert.equal(state.player.killFeed.length, 5);
+});
+
+test('kills cannot push reserve ammo past the weapon cap', () => {
+  const state = duelState();
+  const player = findPlayer(state);
+  state.player.reserve = WEAPONS.rifle.reserveMax;
+
+  const bot = addBot(state, 0, -10);
+  applyDamage(state, bot, 500, player, state.time, 'rifle', false);
+
+  assert.equal(state.player.reserve, WEAPONS.rifle.reserveMax, 'reserve overflowed');
+});
+
+test('a thrown grenade is a projectile that detonates on its fuse', () => {
+  const state = duelState();
+  addBot(state, 60, 60);
+  const startGrenades = state.player.grenades;
+
+  const g = throwGrenade(state, 0, 0.4);
+  assert.ok(g, 'grenade was not created');
+  assert.equal(state.player.grenades, startGrenades - 1);
+  assert.equal(state.grenades.length, 1);
+
+  // Fly for a while, then it must explode and disappear.
+  let frames = 0;
+  while (state.grenades.length > 0 && frames < 60 * 10) {
+    updateGrenades(state, 1 / 60);
+    frames++;
+  }
+  assert.equal(state.grenades.length, 0, 'grenade never detonated');
+  assert.ok(state.events.some((e) => e.type === 'explosion'));
+});
+
+test('a grenade cannot be thrown with none left', () => {
+  const state = duelState();
+  state.player.grenades = 0;
+  assert.equal(throwGrenade(state, 0, 0), null);
+  assert.equal(state.grenades.length, 0);
+});
+
+test('grenade damage falls off with distance', () => {
+  const make = () => {
+    const state = duelState();
+    const player = findPlayer(state);
+    player.x = 0; player.z = 0;
+    return state;
+  };
+
+  const near = make();
+  const nearBot = addBot(near, 1, 0);
+  explodeGrenade(near, { x: 0, y: 0.1, z: 0, ownerId: findPlayer(near).id });
+
+  const far = make();
+  const farBot = addBot(far, 6, 0);
+  explodeGrenade(far, { x: 0, y: 0.1, z: 0, ownerId: findPlayer(far).id });
+
+  assert.ok(nearBot.health < farBot.health,
+    `near ${nearBot.health} should be worse than far ${farBot.health}`);
+  assert.ok(farBot.health < 100, 'far bot took no blast damage');
+});
+
+test('cover halves grenade damage', () => {
+  const mk = (withWall) => {
+    const state = duelState();
+    const player = findPlayer(state);
+    player.x = 0; player.z = 0;
+    state.world.obstacles = withWall
+      ? [{ kind: 'building', x: 2.5, z: 0, hx: 1, hz: 3, height: 5 }]
+      : [];
+    const bot = addBot(state, 5, 0);
+    explodeGrenade(state, { x: 0, y: 0.1, z: 0, ownerId: player.id });
+    return bot.health;
+  };
+
+  assert.ok(mk(true) > mk(false), 'a wall did not reduce blast damage');
+});
+
+test('grenade outside the radius is untouched', () => {
+  const state = duelState();
+  const player = findPlayer(state);
+  const bot = addBot(state, 40, 0);
+  explodeGrenade(state, { x: 0, y: 0.1, z: 0, ownerId: player.id });
+  assert.equal(bot.health, 100);
+});
+
+test('bots get progressively harder tiers', () => {
+  const state = newState(8888);
+  const bots = state.actors.filter((a) => !a.isPlayer);
+  const accuracies = bots.map((b) => b.accuracy);
+
+  assert.ok(Math.min(...accuracies) < Math.max(...accuracies), 'all bots equally skilled');
+  assert.ok(bots[0].tier.name === 'ROOKIE', `first bot is ${bots[0].tier.name}`);
+  assert.ok(bots[bots.length - 1].tier.name === 'ELITE',
+    `last bot is ${bots[bots.length - 1].tier.name}`);
+  for (const b of bots) {
+    assert.ok(b.accuracy > 0 && b.accuracy <= 1);
+    assert.ok(b.damageScale > 0);
+  }
+});
+
+test('the player spawns with armour and two grenades', () => {
+  const state = newState(123);
+  const player = findPlayer(state);
+  assert.equal(player.armor, 50);
+  assert.equal(state.player.grenades, 2);
+});
+
+test('loot kinds all resolve to the right reward', () => {
+  const state = duelState();
+  const player = findPlayer(state);
+  player.x = 0; player.z = 0;
+  player.armor = 0;
+  state.player.grenades = 0;
+
+  state.loot = [
+    { id: 1, x: 0.2, z: 0, y: 0.5, kind: 'armor', taken: false },
+    { id: 2, x: 0, z: 0.2, y: 0.5, kind: 'grenade', taken: false },
+    { id: 3, x: 0.3, z: 0.3, y: 0.5, kind: 'medical', taken: false },
+    { id: 4, x: 0.1, z: 0.4, y: 0.5, kind: 'ammo', taken: false },
+  ];
+  const medkits = state.player.medkits;
+  const reserve = state.player.reserve;
+
+  updateLoot(state, player);
+
+  assert.equal(player.armor, CONFIG.armorPickup);
+  assert.equal(state.player.grenades, 1);
+  assert.equal(state.player.medkits, medkits + 1);
+  assert.equal(state.player.reserve, reserve + CONFIG.lootAmmo);
+  assert.equal(state.loot.filter((l) => l.taken).length, 4);
+});
+
+test('grenades cannot exceed the carry limit', () => {
+  const state = duelState();
+  const player = findPlayer(state);
+  player.x = 0; player.z = 0;
+  state.player.grenades = CONFIG.grenadeMax;
+  state.loot = [{ id: 1, x: 0, z: 0, y: 0.5, kind: 'grenade', taken: false }];
+  updateLoot(state, player);
+  assert.equal(state.player.grenades, CONFIG.grenadeMax);
+});
+
+test('spectating cycles through living bots', () => {
+  const state = duelState();
+  const player = findPlayer(state);
+  const a = addBot(state, 10, 0);
+  const b = addBot(state, 20, 0);
+  const c = addBot(state, 30, 0);
+
+  const first = spectate(state, 1);
+  assert.ok([a.id, b.id, c.id].includes(first));
+
+  const seen = new Set([first]);
+  for (let i = 0; i < 3; i++) seen.add(spectate(state, 1));
+  assert.equal(seen.size, 3, 'spectate did not cycle through every bot');
+
+  player.alive = false;
+  assert.ok(state.player.spectating != null);
+});
+
+test('spectating returns null when nobody is left', () => {
+  const state = duelState();
+  for (const a of state.actors) a.alive = false;
+  assert.equal(spectate(state, 1), null);
+});
+
+test('the player death sets a death camera timer', () => {
+  const state = duelState();
+  addBot(state, 30, 30);
+  const player = findPlayer(state);
+
+  applyDamage(state, player, 500, null, state.time, 'zone', false);
+  assert.equal(player.alive, false);
+  assert.ok(state.player.deathTime != null);
+});
+
+test('result carries match statistics', () => {
+  const state = duelState();
+  const bot = addBot(state, 0, -10);
+  const player = findPlayer(state);
+
+  state.player.stats.shots = 10;
+  state.player.stats.hits = 6;
+  state.player.stats.headshots = 2;
+  state.player.stats.damageDealt = 240;
+
+  applyDamage(state, bot, 500, player, state.time, 'rifle', true);
+  step(state, defaultInput(), { yaw: 0, pitch: 0 }, 1 / 60);
+
+  assert.equal(state.finished, true);
+  const r = state.result;
+  assert.equal(r.title, 'VICTORY!');
+  assert.equal(r.kills, 1);
+  assert.ok(Math.abs(r.accuracy - 0.6) < 1e-9, `accuracy was ${r.accuracy}`);
+  assert.equal(r.headshots, 2);
+  assert.equal(r.damageDealt, 240);
+  assert.ok(r.survived >= 0);
+});
+
+test('sprint is faster than walk, crouch is slower', () => {
+  const distance = (input) => {
+    const state = duelState();
+    const player = findPlayer(state);
+    player.x = 0; player.z = 0;
+    const base = { ...defaultInput(), moveX: 0, moveZ: 1 };
+    for (let i = 0; i < 30; i++) updatePlayer(state, { ...base, ...input }, 0, 1 / 60);
+    return Math.abs(player.z);
+  };
+
+  const walk = distance({});
+  const sprint = distance({ sprint: true });
+  const crouch = distance({ crouch: true });
+
+  assert.ok(sprint > walk * 1.2, `sprint ${sprint} not faster than walk ${walk}`);
+  assert.ok(crouch < walk * 0.8, `crouch ${crouch} not slower than walk ${walk}`);
+});
+
+test('weapon movement multipliers apply', () => {
+  const distance = (weapon) => {
+    const state = duelState();
+    const player = findPlayer(state);
+    player.weapon = weapon;
+    player.x = 0; player.z = 0;
+    const base = { ...defaultInput(), moveX: 0, moveZ: 1 };
+    for (let i = 0; i < 30; i++) updatePlayer(state, base, 0, 1 / 60);
+    return Math.abs(player.z);
+  };
+
+  assert.ok(distance('smg') > distance('shotgun'),
+    'the SMG should let you move faster than the shotgun');
+});
+
+test('a full v2 match finishes and yields a real result object', () => {
+  const state = newState(31337);
+  const input = defaultInput();
+  let frames = 0;
+
+  while (!state.finished && frames < 60 * 420) {
+    // Make the player fight back so the sim exercises weapons and grenades.
+    const bot = aliveBots(state)[0];
+    let look = { yaw: 0, pitch: 0 };
+    if (bot) {
+      const player = findPlayer(state);
+      const dx = bot.x - player.x;
+      const dz = bot.z - player.z;
+      look = { yaw: Math.atan2(-dx, -dz), pitch: 0 };
+      input.firing = Math.hypot(dx, dz) < WEAPONS.rifle.range;
+      input.grenade = frames % 900 === 0;
+      input.reload = state.player.ammo === 0;
+    }
+    step(state, input, look, 1 / 60);
+    input.grenade = false;
+    input.reload = false;
+    frames++;
+  }
+
+  assert.ok(state.finished, 'match never ended');
+  assert.ok(state.result);
+  assert.ok(['VICTORY!', 'ELIMINATED'].includes(state.result.title));
+  assert.ok(state.result.accuracy >= 0 && state.result.accuracy <= 1);
+
+  for (const a of state.actors) {
+    assert.ok(Number.isFinite(a.x) && Number.isFinite(a.z));
+    assert.ok(a.health >= 0 && a.health <= 100);
+  }
+});
+
+test('throwing many grenades in one frame cannot NaN the state', () => {
+  const state = newState(999);
+  addBot(state, 20, 20);
+  const input = { ...defaultInput(), grenade: true };
+
+  for (let i = 0; i < 40; i++) {
+    state.player.grenades = 3;
+    step(state, input, { yaw: i * 0.3, pitch: 0.2 }, 1 / 60);
+  }
+
+  for (const g of state.grenades) {
+    assert.ok(Number.isFinite(g.x) && Number.isFinite(g.y) && Number.isFinite(g.z));
+  }
+  assert.ok(Number.isFinite(state.player.grenades));
 });

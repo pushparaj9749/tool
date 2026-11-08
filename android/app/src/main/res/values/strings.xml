@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Battle Royale</string>
+    <string name="title_activity_main">Battle Royale</string>
+    <string name="package_name">com.ankit.battleroyale</string>
+    <string name="custom_url_scheme">com.ankit.battleroyale</string>
+</resources>

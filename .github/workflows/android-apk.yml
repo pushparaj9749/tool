@@ -1,0 +1,163 @@
+name: Build Android APK
+
+# Builds a ready-to-install APK for the Battle Royale web game.
+#
+#   - every push / PR that touches the game, the android project or this file
+#   - manual runs from the Actions tab
+#   - version tags (v*) additionally publish a GitHub Release with the APK
+#
+# The APK is always uploaded as a workflow artifact, so no signing secret is
+# required to download and install a debug build.
+
+on:
+  push:
+    branches: ['**']
+    paths:
+      - 'web/**'
+      - 'android/**'
+      - '.github/workflows/android-apk.yml'
+      - 'capacitor.config.json'
+      - 'package.json'
+    tags:
+      - 'v*'
+  pull_request:
+    paths:
+      - 'web/**'
+      - 'android/**'
+      - '.github/workflows/android-apk.yml'
+      - 'capacitor.config.json'
+      - 'package.json'
+  workflow_dispatch:
+
+concurrency:
+  group: android-apk-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    name: Game logic tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install npm deps
+        run: npm ci --no-audit --no-fund || npm install --no-audit --no-fund
+
+      - name: Rules + math tests
+        run: node --test web/tests/logic.test.mjs
+
+      - name: Headless renderer boot test
+        run: node --loader ./web/tests/headless/loader.mjs ./web/tests/headless/boot.test.mjs
+
+  build:
+    name: Assemble APK
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      # Preinstalled on ubuntu-latest runners, but pinned for reproducibility.
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install npm deps
+        run: npm ci --no-audit --no-fund || npm install --no-audit --no-fund
+
+      - name: Sync web assets into the Android project
+        run: npx cap sync android
+
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('android/**/*.gradle', 'android/gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: gradle-${{ runner.os }}-
+
+      - name: Make gradlew executable
+        run: chmod +x android/gradlew
+
+      # Debug APK: signed with the standard Android debug key, installable on
+      # any device once "install unknown apps" is allowed.
+      - name: Build debug APK
+        run: cd android && ./gradlew assembleDebug --no-daemon --stacktrace
+
+      # Release APK is only built when a signing keystore is configured.
+      - name: Decode keystore
+        if: ${{ env.BR_KEYSTORE_BASE64 != '' }}
+        env:
+          BR_KEYSTORE_BASE64: ${{ secrets.BR_KEYSTORE_BASE64 }}
+        run: |
+          echo "$BR_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.keystore"
+          echo "BR_KEYSTORE_PATH=$RUNNER_TEMP/release.keystore" >> "$GITHUB_ENV"
+
+      - name: Build release APK
+        if: ${{ env.BR_KEYSTORE_PATH != '' }}
+        env:
+          BR_KEYSTORE_PASSWORD: ${{ secrets.BR_KEYSTORE_PASSWORD }}
+          BR_KEY_ALIAS: ${{ secrets.BR_KEY_ALIAS }}
+          BR_KEY_PASSWORD: ${{ secrets.BR_KEY_PASSWORD }}
+        run: cd android && ./gradlew assembleRelease --no-daemon
+
+      - name: Collect artifacts
+        id: collect
+        run: |
+          mkdir -p out
+          found=0
+          for f in android/app/build/outputs/apk/debug/*.apk \
+                   android/app/build/outputs/apk/release/*.apk; do
+            [ -f "$f" ] || continue
+            base=$(basename "$f" .apk)
+            cp "$f" "out/battle-royale-${base#app-}.apk"
+            found=1
+          done
+          if [ "$found" -eq 0 ]; then
+            echo "::error::No APK was produced"
+            exit 1
+          fi
+          ls -lh out
+          echo "apks=$(ls out/*.apk | tr '\n' ' ')" >> "$GITHUB_OUTPUT"
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: battle-royale-apk
+          path: out/*.apk
+          retention-days: 90
+          if-no-files-found: error
+
+      - name: Attach APK to a GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: out/*.apk
+          generate_release_notes: true
+          body: |
+            ## Battle Royale — Android build
+
+            Download the `.apk` below and install it (allow "install unknown apps" for
+            your browser / file manager).
+
+            **Controls:** left half of the screen is a virtual stick, right half looks,
+            and the buttons on the right are FIRE / RELOAD / HEAL / JUMP / NADE / SWAP.
+
+            Requires Android 5.1+ (API 22) and a GPU with OpenGL ES 3.0.

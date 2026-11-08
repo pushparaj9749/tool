@@ -1,10 +1,15 @@
-/* Node loader hook: redirect three.js to the headless shim, but ONLY for
- * imports coming from the game code. The shim itself must reach the real
- * library, otherwise the redirect becomes circular. */
+/* Node loader hook: redirect three.js to the headless shim.
+ *
+ * Only imports that originate from src/ (the game code) are redirected.
+ * The shim itself and the vendored postprocessing add-ons must reach the real
+ * library, otherwise the add-ons would be served the shim and fail on the
+ * exports the shim does not re-export.
+ */
 
 export async function resolve(specifier, context, nextResolve) {
-  const fromGame = !String(context.parentURL || '').includes('/headless/');
-  if (fromGame && specifier.includes('three.module.min.js')) {
+  const parent = String(context.parentURL || '');
+  const fromSrc = parent.includes('/src/') || parent.includes('/tests/headless/boot');
+  if (fromSrc && specifier.includes('three.module.min.js')) {
     return { url: new URL('./three-shim.mjs', import.meta.url).href, shortCircuit: true };
   }
   return nextResolve(specifier, context);

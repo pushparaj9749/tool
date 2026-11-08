@@ -1,0 +1,15 @@
+{
+  "appId": "com.ankit.battleroyale",
+  "appName": "Battle Royale",
+  "webDir": "web",
+  "bundledWebRuntime": false,
+  "android": {
+    "allowMixedContent": false,
+    "captureInput": true,
+    "webContentsDebuggingEnabled": false,
+    "backgroundColor": "#070b10"
+  },
+  "server": {
+    "androidScheme": "https"
+  }
+}

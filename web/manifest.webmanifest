@@ -1,0 +1,32 @@
+{
+  "name": "Battle Royale — ANKIT",
+  "short_name": "BR ANKIT",
+  "description": "16-fighter battle royale: three weapons, grenades, armour and a shrinking safe zone.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "background_color": "#070b10",
+  "theme_color": "#0b1016",
+  "categories": ["games"],
+  "icons": [
+    {
+      "src": "./icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

@@ -43,3 +43,17 @@ notebooks/ANKIT_LLM_ONE_CLICK_T4_v3.ipynb
 drive_upload/
 notebooks/ANKIT_LLM_ONE_CLICK_T4.ipynb
 reports/build_stamp.json
+
+# ---------------------------------------------------------------- android / node
+# Node modules and Capacitor-generated copies of the web build
+node_modules/
+android/app/src/main/assets/public/
+android/app/src/main/assets/capacitor.config.json
+android/app/src/main/assets/capacitor.plugins.json
+android/.gradle/
+android/build/
+android/app/build/
+android/capacitor-cordova-android-plugins/
+android/local.properties
+*.keystore
+*.jks
