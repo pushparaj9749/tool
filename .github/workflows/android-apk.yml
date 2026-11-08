@@ -54,6 +54,12 @@ jobs:
       - name: Rules + math tests
         run: node --test web/tests/logic.test.mjs
 
+      # A shader that does not compile renders a black screen and the JS suite
+      # cannot see it, because to JS the shader is just a string. This compiles
+      # it with the real glslang reference compiler.
+      - name: Sky shader compiles (glslang)
+        run: node --test web/tests/shader/compile.test.mjs
+
       - name: Headless renderer boot test
         run: node --loader ./web/tests/headless/loader.mjs ./web/tests/headless/boot.test.mjs
 

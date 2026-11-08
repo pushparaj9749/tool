@@ -195,7 +195,7 @@ const SKY_FRAG = /* glsl */ `
     col += sunColor * pow(sunAmount, 9.0) * lowSun * 0.9 * pow(max(1.0 - up, 0.0), 3.0);
 
     // A soft belt of light just above the horizon on the anti-sun side.
-    float belt = pow(1.0 - abs(h), 8.0) * (1.0 - sunAmount);
+    float belt = pow(max(1.0 - abs(h), 0.0), 8.0) * (1.0 - sunAmount);
     col += horizon * belt * 0.12;
 
     // Below the horizon: ground bounce, darker and warmer.
@@ -323,8 +323,10 @@ const SKY_FRAG = /* glsl */ `
       float t = fract((uTime + fi * 3.1) / period);
 
       // Only visible for a short slice of the period.
-      float active = smoothstep(0.0, 0.04, t) * (1.0 - smoothstep(0.10, 0.16, t));
-      if (active <= 0.001) continue;
+      // NOT named "active": that is a reserved word in GLSL and makes the
+      // whole shader fail to compile, which renders the sky black.
+      float streak = smoothstep(0.0, 0.04, t) * (1.0 - smoothstep(0.10, 0.16, t));
+      if (streak <= 0.001) continue;
 
       // A great-circle sweep: interpolate between two headings.
       float a0 = hash21(vec2(fi, 1.0)) * 6.283;
@@ -338,7 +340,7 @@ const SKY_FRAG = /* glsl */ `
 
       float d = dot(dir, head);
       float glow = pow(max(d, 0.0), 900.0) + pow(max(d, 0.0), 60.0) * 0.15;
-      col += vec3(1.0, 0.96, 0.85) * glow * active * 6.0;
+      col += vec3(1.0, 0.96, 0.85) * glow * streak * 6.0;
     }
     return col * fade;
   }
@@ -531,24 +533,11 @@ let skyDome = null;
   scene.add(sky);
   skyDome = sky;
 
-  // If this shader ever fails to compile, three logs an error and renders a
-  // black sphere -- i.e. the player sees an entirely black sky with no clue
-  // why. Make that failure loud and give the scene a usable background.
-  sky.material.onBeforeCompile = () => {};
-  const probe = renderer.getContext?.();
-  if (probe && typeof probe.getShaderInfoLog === 'function') {
-    // Compile eagerly instead of on first render, so a broken shader is caught
-    // here where we can recover from it.
-    const mat = sky.material;
-    mat.needsUpdate = true;
-    try {
-      renderer.compile(scene, camera);
-    } catch (err) {
-      console.error('[sky] shader failed to compile, falling back:', err);
-      sky.visible = false;
-      scene.background = new THREE.Color(0x8fc4e4);
-    }
-  }
+  // The shader is validated by `npm run test:shader` with the real glslang
+  // reference compiler before any of this ever reaches a device, so there is
+  // no need to try to catch it at runtime. (An earlier attempt set
+  // onBeforeCompile here, which three also hashes into its program cache key —
+  // a pointless rebuild, and it silently replaced ShaderMaterial's own noop.)
 }
 
 /**

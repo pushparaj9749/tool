@@ -1,24 +1,26 @@
 {
   "name": "ankit-battle-royale",
-  "version": "2.2.1",
+  "version": "2.2.2",
   "private": true,
   "description": "Battle Royale: three.js web game packaged as an Android APK with Capacitor.",
   "scripts": {
     "serve": "node web/serve.mjs 8080",
     "test": "node --test web/tests/logic.test.mjs",
     "test:headless": "node --loader ./web/tests/headless/loader.mjs ./web/tests/headless/boot.test.mjs",
-    "test:all": "npm test && npm run test:headless",
+    "test:all": "npm test && npm run test:shader && npm run test:headless",
     "cap:sync": "npx cap sync android",
     "cap:open": "npx cap open android",
     "android:debug": "cd android && ./gradlew assembleDebug",
-    "android:release": "cd android && ./gradlew assembleRelease"
+    "android:release": "cd android && ./gradlew assembleRelease",
+    "test:shader": "node --test web/tests/shader/compile.test.mjs"
   },
   "dependencies": {
     "@capacitor/android": "^6.2.0",
     "@capacitor/core": "^6.2.0"
   },
   "devDependencies": {
-    "@capacitor/cli": "^6.2.0"
+    "@capacitor/cli": "^6.2.0",
+    "glslang-wasm": "^1.1.1"
   },
   "license": "MIT"
 }

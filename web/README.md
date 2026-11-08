@@ -1,8 +1,19 @@
-# BATTLE ROYALE v2.2.1 — playable in the browser **and** on Android
+# BATTLE ROYALE v2.2.2 — playable in the browser **and** on Android
 
 A complete 16-fighter battle royale: three weapons, grenades, armour, four bot skill
 tiers, a shrinking safe zone and a kill feed. Runs in any modern browser with no build
 step, and ships as an installable **Android APK** built by GitHub Actions.
+
+**v2.2.2 fixes the actual cause of the black sky: the shader did not compile.**
+The shooting-star code named a variable `active`. `active` is a **reserved word in GLSL**,
+so the entire fragment shader failed to compile, WebGL rendered nothing, and the player got
+a pure black sky. The CPU port in this repo could not catch it because it was hand-written
+Python that never saw that identifier, and the JS tests could not catch it because to JS
+the shader is only a string.
+
+The build now compiles the shader with the **real glslang reference compiler** on every
+commit (`npm run test:shader`), which is how the bug was found and fixed. That test is in CI
+before the APK is assembled.
 
 **v2.2.1 fixes a black sky and adds three more sky layers.** v2.2 booted at
 `dayClock = 0.18`, which is *night* — the first thing a player saw was a black dome. It
@@ -21,7 +32,7 @@ per-weapon viewmodels, a synthesised audio engine and a decorated map.
 
 ```
 Play in a browser  →  node web/serve.mjs 8080      then open localhost:8080
-Install on Android →  Releases → v2.2.1 → battle-royale-debug.apk
+Install on Android →  Releases → v2.2.2 → battle-royale-debug.apk
 ```
 
 ---
@@ -334,6 +345,28 @@ chain, camera math and raycaster. Asserts the scene builds (16 actors, 30 loot, 
 frames render through `EffectComposer`, `beginMatch()` works and a 45-second simulation
 shrinks the zone with finite state.
 
+### Shader compilation — `npm run test:shader`
+
+The most important test in the project, and it exists because of a shipped bug.
+
+`web/tests/shader/compile.test.mjs` links the vertex and fragment shaders exactly as
+three.js presents them to a WebGL1 driver — same `#version 100`, same precision qualifiers,
+same built-in uniforms and attributes — and compiles them with **glslang**, the Khronos
+reference compiler, running as WebAssembly. Any diagnostic fails the build.
+
+It also asserts a static list of GLSL reserved words never appears as a declaration name,
+and that no `pow()` is called on a base that can go negative.
+
+```
+$ npm run test:shader
+# tests 5
+# pass 5
+# fail 0
+```
+
+Verified that the test actually catches the original bug: reintroducing the `active`
+declaration makes two of the five tests fail.
+
 ### Sky verification — CPU render of the real shader
 
 There is no GPU in the build environment, so `SKY_FRAG` is ported to NumPy and rendered on
@@ -369,6 +402,7 @@ really contains the built game, and `apksigner verify` for the signature.
 | `aimDirection` disagreed with the movement convention (would fire backwards) | shot direction test |
 | Camera boom could clamp to zero length | scene test |
 | Armour could absorb more than it had | armour test |
+| **The sky shader used `active` as a variable name — a GLSL reserved word — so it never compiled at all and rendered a black screen** | glslang compile test |
 | Game booted at `dayClock = 0.18`, which is night — first frame was a black sky | 24-hour CPU cycle render |
 | `pow(1.0 - up, 1.6)`, `pow(band * 3.1, 2.0)`, `pow(across * 26.0, 2.0)` ran on negative bases — undefined in GLSL, black on mobile GPUs | shader audit |
 | Golden-hour ramp stayed at 1.0 all night, so midnight clouds glowed pink | 24-hour CPU cycle render |
