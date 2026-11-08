@@ -99,6 +99,33 @@
   #crosshair::before { left: 50%; top: 0; width: 1.5px; height: 100%; transform: translateX(-50%); }
   #crosshair::after { top: 50%; left: 0; height: 1.5px; width: 100%; transform: translateY(-50%); }
 
+  /* ---- aim-assist lock-on -------------------------------------------- */
+  #lockRing {
+    position: absolute; left: 0; top: 0; width: 64px; height: 64px; opacity: 0;
+    border: 2px solid #ff4d5e; border-radius: 50%;
+    transform-origin: 50% 50%; pointer-events: none; will-change: transform, opacity;
+    transition: opacity .09s linear, border-color .09s linear;
+    animation: lockPulse 1.15s ease-in-out infinite;
+  }
+  #lockRing::before, #lockRing::after {
+    content: ""; position: absolute; left: 50%; top: 50%; width: 7px; height: 2px;
+    background: currentColor; color: inherit; border-radius: 1px;
+  }
+  #lockRing::before { transform: translate(-50%, -50%) rotate(45deg); background: #ff4d5e; }
+  #lockRing::after  { transform: translate(-50%, -50%) rotate(-45deg); background: #ff4d5e; }
+  #lockRing.on { opacity: 1; }
+  @keyframes lockPulse {
+    0%, 100% { filter: brightness(1); }
+    50%      { filter: brightness(1.45); }
+  }
+  #lockLabel {
+    position: absolute; left: 0; top: 0; opacity: 0; pointer-events: none;
+    font: 700 10px/1 ui-monospace, "SF Mono", Menlo, monospace;
+    letter-spacing: .18em; color: #ffd7db; text-shadow: 0 0 8px rgba(255,60,80,.9);
+    transition: opacity .09s linear;
+  }
+  #lockLabel.on { opacity: 1; }
+
   #hitmark { position: absolute; left: 50%; top: 50%; width: 28px; height: 28px; transform: translate(-50%,-50%) rotate(45deg); opacity: 0; }
   #hitmark::before, #hitmark::after { content:""; position:absolute; background:#fff; box-shadow:0 0 8px #000; }
   #hitmark::before { left: 50%; top: 0; width: 2px; height: 100%; transform: translateX(-50%); }
@@ -266,6 +293,8 @@
   </div>
 
   <div id="crosshair"></div>
+  <div id="lockRing"></div>
+  <div id="lockLabel"></div>
   <div id="hitmark"></div>
   <div id="toast"></div>
   <div id="zoneWarning">OUTSIDE SAFE ZONE — MOVE TO CENTRE</div>

@@ -40,6 +40,12 @@ import {
   WEAPONS,
   WEAPON_ORDER,
   spectate,
+  findAimTarget,
+  applyAimAssist,
+  lookAtAngles,
+  wrapAngle,
+  angleDelta,
+  hasLineOfSight,
   updateBot,
   updateLoot,
   updatePlayer,
@@ -1225,4 +1231,276 @@ test('throwing many grenades in one frame cannot NaN the state', () => {
     assert.ok(Number.isFinite(g.x) && Number.isFinite(g.y) && Number.isFinite(g.z));
   }
   assert.ok(Number.isFinite(state.player.grenades));
+});
+
+/* ==========================================================================
+ * Aim assist (Free-Fire-style) — the "default aim" the game ships with
+ * ========================================================================== */
+
+test('wrapAngle and angleDelta handle the ±PI seam', () => {
+  close(wrapAngle(0), 0);
+  close(wrapAngle(Math.PI * 2), 0, 1e-9);
+  close(wrapAngle(-Math.PI * 2), 0, 1e-9);
+  // ±PI is one and the same heading. The canonical form here is -PI.
+  close(wrapAngle(Math.PI), -Math.PI, 1e-9);
+  close(wrapAngle(Math.PI * 3), -Math.PI, 1e-9);
+  close(wrapAngle(-Math.PI), -Math.PI, 1e-9);
+  assert.ok(Math.abs(wrapAngle(Math.PI * 5)) <= Math.PI);
+
+  // Crossing the seam must give the short way round, not the long way.
+  const seam = angleDelta(3.0, -3.0);
+  close(Math.abs(seam), Math.PI * 2 - 6.0, 1e-9);
+  assert.ok(Math.abs(seam) < Math.PI, 'delta must be the short arc');
+  // 6 rad of raw separation folds back to 6 - 2PI on the short arc.
+  close(wrapAngle(-6.0), Math.PI * 2 - 6.0, 1e-9);
+  close(seam, Math.PI * 2 - 6.0, 1e-9);
+});
+
+test('lookAtAngles points at a target in all four directions', () => {
+  const eye = 1.35;
+  const north = lookAtAngles({ x: 0, z: 0 }, { x: 0, z: -10, y: eye }, eye);
+  close(north.yaw, 0, 1e-9);
+  close(north.pitch, 0, 1e-9);
+
+  const south = lookAtAngles({ x: 0, z: 0 }, { x: 0, z: 10, y: eye }, eye);
+  close(Math.abs(south.yaw), Math.PI, 1e-9);
+
+  const east = lookAtAngles({ x: 0, z: 0 }, { x: 10, z: 0, y: eye }, eye);
+  close(east.yaw, -Math.PI / 2, 1e-9);
+
+  const west = lookAtAngles({ x: 0, z: 0 }, { x: -10, z: 0, y: eye }, eye);
+  close(west.yaw, Math.PI / 2, 1e-9);
+
+  // Looking up at a head 1.58 m above ground from 1.35 m eye height, 10 m away.
+  const head = lookAtAngles({ x: 0, z: 0 }, { x: 0, z: -10, y: 1.58 }, eye);
+  assert.ok(head.pitch > 0, 'looking at a head above eye level must pitch up');
+});
+
+test('assist finds a target inside the cone and ignores one outside it', () => {
+  const state = duelState();
+  const player = findPlayer(state);
+  player.x = 0; player.z = 0;
+
+  const bot = addBot(state, 0, -12);          // straight ahead (yaw 0)
+  const target = findAimTarget(state, 0, 0);
+  assert.ok(target, 'no target found straight ahead');
+  assert.equal(target.actorId, bot.id);
+  assert.ok(target.weight > 0 && target.weight <= 2);
+
+  // Look the other way: nothing within the cone.
+  assert.equal(findAimTarget(state, Math.PI, 0), null);
+});
+
+test('assist prefers the target nearest the crosshair', () => {
+  const state = duelState();
+  const player = findPlayer(state);
+  player.x = 0; player.z = 0;
+
+  const near = addBot(state, 0.6, -14);       // slightly off-centre
+  addBot(state, 6, -14);                       // far off-centre
+
+  const target = findAimTarget(state, 0.02, 0);
+  assert.ok(target);
+  assert.equal(target.actorId, near.id, 'picked the wrong target');
+});
+
+test('assist is blocked by solid cover', () => {
+  const state = duelState();
+  const player = findPlayer(state);
+  player.x = 0; player.z = 0;
+  addBot(state, 0, -14);
+  state.world.obstacles = [{ kind: 'building', x: 0, z: -6, hx: 2, hz: 2, height: 6 }];
+
+  assert.equal(hasLineOfSight(state, 0, 0, 0, -14), false);
+  assert.equal(findAimTarget(state, 0, 0), null, 'assisted through a building');
+});
+
+test('low cover does not block the assist', () => {
+  const state = duelState();
+  const player = findPlayer(state);
+  player.x = 0; player.z = 0;
+  addBot(state, 0, -14);
+  state.world.obstacles = [{ kind: 'cover', x: 0, z: -6, hx: 2, hz: 2, height: 1.3 }];
+
+  assert.equal(hasLineOfSight(state, 0, 0, 0, -14), true);
+  assert.ok(findAimTarget(state, 0, 0), 'low cover should not block assist');
+});
+
+test('assist respects maxRange', () => {
+  const state = duelState();
+  const player = findPlayer(state);
+  player.x = 0; player.z = 0;
+  state.world.obstacles = [];
+  addBot(state, 0, -(CONFIG.aim.maxRange + 15));
+
+  assert.equal(findAimTarget(state, 0, 0), null, 'assisted beyond max range');
+});
+
+test('assist can be disabled entirely', () => {
+  const state = duelState();
+  const player = findPlayer(state);
+  player.x = 0; player.z = 0;
+  addBot(state, 0, -12);
+
+  assert.ok(findAimTarget(state, 0, 0));
+
+  const cfg = { ...state.cfg, aim: { ...state.cfg.aim, enabled: false } };
+  assert.equal(findAimTarget(state, 0, 0, cfg), null);
+});
+
+test('applyAimAssist pulls the view toward the target and converges', () => {
+  const state = duelState();
+  const player = findPlayer(state);
+  player.x = 0; player.z = 0;
+  const bot = addBot(state, 0, -12);
+
+  // Start 0.1 rad off target (inside the cone).
+  const startYaw = 0.1;
+  let yaw = startYaw;
+  let pitch = 0;
+
+  for (let i = 0; i < 60; i++) {
+    const out = applyAimAssist(state, yaw, pitch, 1 / 60);
+    yaw = out.yaw;
+    pitch = out.pitch;
+  }
+
+  const target = lookAtAngles(player, bot, CONFIG.playerEyeHeight);
+  assert.ok(Math.abs(angleDelta(yaw, target.yaw)) < Math.abs(startYaw - target.yaw),
+    `assist did not pull the view (yaw ${yaw} vs target ${target.yaw})`);
+  assert.ok(Math.abs(angleDelta(yaw, target.yaw)) < 0.05, `did not converge: ${yaw}`);
+});
+
+test('applyAimAssist leaves the view alone when nothing is near', () => {
+  const state = duelState();
+  const player = findPlayer(state);
+  player.x = 0; player.z = 0;
+  addBot(state, 0, -12);
+
+  const out = applyAimAssist(state, Math.PI, 0.3, 1 / 60);
+  assert.equal(out.yaw, Math.PI);
+  assert.equal(out.pitch, 0.3);
+  assert.equal(out.target, null);
+});
+
+test('aim assist is frame-rate independent within a tolerance', () => {
+  const run = (dt, frames) => {
+    const state = duelState();
+    const player = findPlayer(state);
+    player.x = 0; player.z = 0;
+    addBot(state, 0, -12);
+    let yaw = 0.12;
+    let pitch = 0;
+    for (let i = 0; i < frames; i++) {
+      const out = applyAimAssist(state, yaw, pitch, dt);
+      yaw = out.yaw;
+      pitch = out.pitch;
+    }
+    return yaw;
+  };
+
+  const at60 = run(1 / 60, 60);   // 1 second
+  const at120 = run(1 / 120, 120); // 1 second
+  assert.ok(Math.abs(at60 - at120) < 0.12,
+    `frame rate changed the result too much: ${at60} vs ${at120}`);
+});
+
+test('bullet magnetism makes a near-miss land', () => {
+  const shoot = (aimOffset) => {
+    const state = duelState();
+    const player = findPlayer(state);
+    player.x = 0; player.z = 0;
+    const bot = addBot(state, 0, -12);
+    // Place the view just off the bot's centre.
+    const shots = firePlayerShot(state, aimOffset, 0);
+    return { bot, shots };
+  };
+
+  // Dead-on: always hits.
+  const onTarget = shoot(0);
+  assert.equal(onTarget.bot.health < 100, true, 'a point-blank shot missed');
+
+  // Slightly off but inside the magnet cone: magnetism should save it often.
+  let hits = 0;
+  for (let i = 0; i < 40; i++) {
+    const { bot } = shoot(0.012 + (i % 5) * 0.002);
+    if (bot.health < 100) hits++;
+  }
+  assert.ok(hits > 20, `magnetism only landed ${hits}/40 near-misses`);
+
+  // Far outside the cone: no free hits.
+  let farHits = 0;
+  for (let i = 0; i < 40; i++) {
+    const { bot } = shoot(0.9);
+    if (bot.health < 100) farHits++;
+  }
+  assert.equal(farHits, 0, 'shots away from the target still hit');
+});
+
+test('bullet magnetism does nothing when the assist is off', () => {
+  const state = duelState();
+  const player = findPlayer(state);
+  player.x = 0; player.z = 0;
+  state.cfg = { ...state.cfg, aim: { ...state.cfg.aim, enabled: false } };
+  addBot(state, 0, -12);
+  state.world.obstacles = [];
+
+  // Well outside every cone: the shot must be a genuine miss with no magnet.
+  const shots = firePlayerShot(state, 0.35, 0);
+  assert.ok(shots);
+  assert.equal(shots[0].kind, 'miss', 'magnetism fired with the assist disabled');
+
+  const shotEvent = state.events.find((e) => e.type === 'shot');
+  assert.equal(shotEvent.magnetTarget, null, 'a magnet target was set while disabled');
+});
+
+test('bullet magnetism never redirects a shot into the head', () => {
+  const state = duelState();
+  const player = findPlayer(state);
+  player.x = 0; player.z = 0;
+  const bot = addBot(state, 0, -12);
+  state.world.obstacles = [];
+
+  // Aim at the torso but nudge the pitch up toward head height; magnetism must
+  // pull to the torso, so the hit is a body hit, not a headshot.
+  const torso = lookAtAngles(player, { x: bot.x, y: 1.05, z: bot.z }, CONFIG.playerEyeHeight);
+  const shots = firePlayerShot(state, torso.yaw, torso.pitch + 0.03);
+  assert.ok(shots);
+  const hit = shots.find((s) => s.kind === 'actor');
+  assert.ok(hit, 'torso shot missed entirely');
+  assert.equal(hit.headshot, false, 'magnetism turned a body shot into a headshot');
+});
+
+test('the shot event reports which target the magnetism grabbed', () => {
+  const state = duelState();
+  const player = findPlayer(state);
+  player.x = 0; player.z = 0;
+  const bot = addBot(state, 0, -12);
+
+  firePlayerShot(state, 0.01, 0);
+  const shotEvent = state.events.find((e) => e.type === 'shot' && e.magnetTarget != null);
+  assert.ok(shotEvent, 'no magnetTarget on the shot event');
+  assert.equal(shotEvent.magnetTarget, bot.id);
+});
+
+test('assist never targets a dead bot or the player themselves', () => {
+  const state = duelState();
+  const player = findPlayer(state);
+  player.x = 0; player.z = 0;
+
+  const dead = addBot(state, 0, -8);
+  dead.alive = false;
+  const live = addBot(state, 0, -14);
+
+  const target = findAimTarget(state, 0, 0);
+  assert.ok(target);
+  assert.equal(target.actorId, live.id, 'assist grabbed a corpse');
+  assert.notEqual(target.actorId, player.id);
+});
+
+test('assist is disabled while spectating', () => {
+  const state = duelState();
+  addBot(state, 0, -12);
+  state.player.spectating = 9999;
+  assert.equal(findAimTarget(state, 0, 0), null);
 });

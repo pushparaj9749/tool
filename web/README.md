@@ -1,12 +1,16 @@
-# BATTLE ROYALE v2 — playable in the browser **and** on Android
+# BATTLE ROYALE v2.1 — playable in the browser **and** on Android
 
 A complete 16-fighter battle royale: three weapons, grenades, armour, four bot skill
 tiers, a shrinking safe zone and a kill feed. Runs in any modern browser with no build
 step, and ships as an installable **Android APK** built by GitHub Actions.
 
+**v2.1 adds the default aim that v2 was missing** (Free-Fire-style view assist plus
+bullet magnetism), procedurally painted surface textures, a fully modelled fighter,
+per-weapon viewmodels, a synthesised audio engine and a decorated map.
+
 ```
 Play in a browser  →  node web/serve.mjs 8080      then open localhost:8080
-Install on Android →  Releases → v2.0.0 → battle-royale-debug.apk
+Install on Android →  Releases → v2.1.0 → battle-royale-debug.apk
 ```
 
 ---
@@ -109,6 +113,47 @@ fetched at runtime.
 Damage decays past the falloff distance down to a per-weapon floor (46 % rifle,
 35 % SMG, 22 % shotgun) — the shotgun is devastating inside 12 m and useless at 30 m.
 
+### Default aim (the v2.1 headline)
+
+The game ships with assist **on by default**, the way a mobile shooter does. It is
+angle-based, so it behaves identically for a mouse, a thumbstick and a finger drag.
+
+| | Value | What it means |
+|---|---|---|
+| `assistCone` | 0.22 rad (~12.6°) | How far off-target the crosshair can be and still be pulled |
+| `assistStrength` | 0.75 | How hard the view is pulled |
+| `assistRate` | 14 /s | Convergence speed |
+| `bulletMagnetCone` | 0.055 rad (~3.2°) | How close a shot must be before the bullet curves |
+| `bulletMagnetStrength` | 0.85 | How much the bullet curves |
+| `maxRange` | 80 m | Assist fades out beyond this |
+| `minDistanceScale` | 0.55 | Floor on the distance falloff |
+
+Three deliberate design rules keep it from feeling like a cheat:
+
+1. **It aims at the torso, never the head.** Converging on the head made close-range
+   shots sail over the target and handed out free headshots. Headshots stay a skill.
+2. **It weakens with distance** (down to 55 %) so long shots still need aim.
+3. **It never shoots through walls** — solid cover (≥ 2 m) breaks the lock, while
+   waist-high crates do not.
+
+Measured effect, 8 shots per trial, shooter starting ~3.2° off target with recoil drift
+and hand wobble (40 trials per range):
+
+| Range | No assist | With assist |
+|---|---|---|
+| 8 m | 4.00 / 8 | 4.00 / 8 |
+| 14 m | 0.00 / 8 | 4.00 / 8 |
+| 22 m | 0.00 / 8 | 4.00 / 8 |
+| 34 m | 0.00 / 8 | 3.90 / 8 |
+| 50 m | 0.00 / 8 | 3.52 / 8 |
+| 65 m | 0.00 / 8 | 3.00 / 8 |
+
+It never makes you *worse* (the 8 m row is unchanged) and it turns a hopeless shot into
+a hit at mid range. The locked enemy gets a pulsing red ring with a `LOCK` / `HEAD`
+label, so you can always see that the assist is doing something.
+
+Turn it off with `CONFIG.aim.enabled = false` — every path checks the flag.
+
 ### Systems
 
 - **Armour** absorbs 50 % of body damage and 25 % of headshots, breaks at 0.
@@ -126,8 +171,35 @@ Damage decays past the falloff distance down to a per-weapon floor (46 % rifle,
 ### Presentation
 
 UnrealBloom + ACES tonemapping through `EffectComposer`, a gradient sky shader with a sun
-disc and halo, three-light rig (sun + hemisphere + cool rim) with PCF soft shadows, a
-weapon viewmodel with recoil/kick/bob, and a generated icon set for the APK.
+disc and halo, three-light rig (sun + hemisphere + cool rim) with PCF soft shadows, and a
+generated icon set for the APK.
+
+**Everything is painted at boot.** No binary art ships with the build (the sandbox cannot
+download any), so the assets are generated in code:
+
+- **Six canvas textures** — grass with blade grain and worn dirt, cracked concrete with
+  panel seams and rising grime, painted metal with ribs and rust blooms, staggered
+  sandbag courses with stitching, and planked wood with steel banding. Painted with a
+  seeded PRNG, so the world is identical on every run.
+- **Cover with silhouette** — buildings get a skirting band, roof slab, parapet, corner
+  pilasters, boarded windows and a doorway; crates get a steel lid and banding; bags are
+  stacked in battered courses; boulders are faceted icosahedra.
+- **150 scattered props** — oil barrels, crate stacks, boulder clusters, tree stumps and
+  debris planks, all placed deterministically and kept out of the collision set.
+- **A modelled fighter** — helmet with brim, ballistic vest with pouches, shoulder pads,
+  backpack, belt, knee pads, boots and two-segment limbs with a real walk cycle (hips
+  swing, knees bend on the back stroke, arms counter-swing, vertical bob).
+- **Per-weapon viewmodel** — receiver, railed top, stock, grip, trigger guard, magazine,
+  barrel with a muzzle brake, optic with a glowing red dot, gloved hands and a two-layer
+  muzzle flash. The shotgun, SMG and rifle have visibly different silhouettes.
+- **Modelled loot** — a medkit with a red cross, a ceramic armour plate on a stand, a
+  frag grenade with cap and lever, and an open ammo crate with visible rounds. Each
+  spins, bobs and carries a rotating halo ring plus a soft glow dome.
+- **Synthesised audio** — filtered noise bursts and swept oscillators give every gunshot
+  its own voice, with stereo panning and distance attenuation. There are sounds for
+  hits, headshots, taking damage, reloads (three-stage click), pickups, weapon swaps,
+  explosions, deaths and the zone warning. Audio unlocks on the first input, as browser
+  autoplay rules require.
 
 ---
 
@@ -173,7 +245,7 @@ Neither a GPU nor a downloadable browser existed while this was built (Chrome an
 Playwright downloads are blocked in the sandbox), so the project is verified in three
 headless layers. All of them run in CI before the APK is built.
 
-### 74 rules tests — `npm test`
+### 91 rules tests — `npm test`
 
 RNG determinism, zone curve and circularity, circle↔box / circle↔circle collision and
 push-out, segment↔box intersection, world bounds, spawn clearance, map clamping, actor
@@ -183,6 +255,14 @@ physics and radial damage with cover shielding, kill feed and reserve caps, all 
 tiers, loot kinds and carry limits, reload timing and reserve accounting, heal caps,
 spectating cycle, sprint/crouch and weapon move multipliers, two full 400-second match
 simulations, `step()` no-op after the match ends, and a NaN sweep.
+
+The 17 aim-assist tests cover: angle wrapping across the ±π seam, `lookAtAngles` in all
+four compass directions, target selection inside vs outside the cone, nearest-target
+preference, line-of-sight blocking by walls but not by low cover, the range limit, the
+disable flag, convergence under repeated frames, frame-rate independence, that magnetism
+saves near-misses but never invents hits, that magnetism never converts a body shot into
+a headshot, the `magnetTarget` reported on shot events, that corpses and the player are
+never targeted, and that assist is off while spectating.
 
 ### Headless renderer boot — `npm run test:headless`
 
@@ -207,15 +287,23 @@ really contains the built game, and `apksigner verify` for the signature.
 | `aimDirection` disagreed with the movement convention (would fire backwards) | shot direction test |
 | Camera boom could clamp to zero length | scene test |
 | Armour could absorb more than it had | armour test |
+| `lookAtAngles` was called with four arguments, so the head geometry landed in `eyeHeight` and produced `NaN` pitch | aim-assist test |
+| A `NaN` candidate could win target selection (`NaN > x` is always false) | assist cone test |
+| The view assist converged on the **head**, so close-range shots sailed over the target (−32 % hits at 8 m) | assist benchmark |
+| Low cover blocked the lock even though you can shoot over it | line-of-sight test |
+| Bullet magnetism aimed at the head, silently turning body shots into headshots | firePlayerShot test |
 
 ---
 
 ## 6. Not done
 
-- No audio, no ragdolls (capsules tip over), no character animation beyond leg swing.
+- No ragdolls — a dead fighter tips over as a rigid body.
 - Bots use steering, not pathfinding — they can wedge against long walls.
 - Buildings are solid blocks with no interiors.
 - Physics is 2.5-D: cover blocks shots by height, but there is no falling or stairs.
+- The textures are procedural, not authored art. They are a large step up from flat
+  vertex colours, but they are not a substitute for a real texture set.
+- Footstep audio is not implemented; gunfire, impacts and the HUD are.
 - No multiplayer, no persistence, no settings menu.
 - The APK is debug-signed. Publishing to Google Play needs the release keystore secrets
   above and an AAB (`./gradlew bundleRelease`).

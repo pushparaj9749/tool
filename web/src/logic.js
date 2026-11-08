@@ -147,6 +147,46 @@ export const CONFIG = {
   deathCamTime: 1.6,
 
   spawn: { x: 0, z: -15 },
+
+  /* ------------------------------------------------------------ aim assist
+   * Free-Fire-style assist. Everything is angle-based so it feels identical
+   * with a mouse, a thumbstick or a finger drag.
+   */
+  aim: {
+    enabled: true,
+
+    // Field of view in which the crosshair is attracted toward a target.
+    assistCone: 0.22,          // rad (~12.6 deg)
+    assistStrength: 0.75,      // 0..1, how hard the view is pulled
+    assistRate: 14.0,          // per second lerp rate
+
+    // Bullets curve toward a target near the crosshair (the classic
+    // "my shots keep hitting" feel).
+    bulletMagnetCone: 0.055,   // rad (~3.2 deg)
+    bulletMagnetStrength: 0.85,
+
+    // Firing while the crosshair is roughly on someone snaps hard for the
+    // first shot, exactly like a mobile shooter's auto-fire.
+    fireSnapCone: 0.12,
+    fireSnapStrength: 1.0,
+
+    // How tight the crosshair must be on the head for the reticle to read
+    // HEAD. Purely cosmetic: it never moves the aim point.
+    headBiasCone: 0.045,
+
+    // Bullet magnetism aims at the torso, never the head: assists should help
+    // you land shots, not hand you free headshots.
+    torsoHeight: 1.05,
+
+    // Assist weakens with distance so long shots stay a skill.
+    maxRange: 80,
+    minDistanceScale: 0.55,
+
+    // No assist through solid cover — but anything shorter than
+    // `blockingHeight` is ignored, so you can still lock on over a crate.
+    requireLineOfSight: true,
+    blockingHeight: 2.0,
+  },
 };
 
 /* ---------------------------------------------------------------- helpers */
@@ -573,6 +613,205 @@ export function aimDirection(yaw, pitch) {
  * Resolve one trigger pull for the player.
  * Returns the shot record (possibly several pellets for the shotgun).
  */
+/* ------------------------------------------------------------ aim assist */
+
+/** Wrap an angle into (-PI, PI]. */
+export function wrapAngle(a) {
+  a = (a + Math.PI) % (Math.PI * 2);
+  if (a < 0) a += Math.PI * 2;
+  return a - Math.PI;
+}
+
+/** Smallest signed difference from `a` to `b`. */
+export function angleDelta(a, b) {
+  return wrapAngle(b - a);
+}
+
+/** Yaw/pitch that points from `from` at `to`. */
+export function lookAtAngles(from, to, eyeHeight = CONFIG.playerEyeHeight) {
+  const eye = Number.isFinite(eyeHeight) ? eyeHeight : CONFIG.playerEyeHeight;
+  const dx = to.x - from.x;
+  const dz = to.z - from.z;
+  const targetY = Number.isFinite(to.y) ? to.y : 1.2;
+  const dy = targetY - eye;
+  return {
+    yaw: Math.atan2(-dx, -dz),
+    pitch: Math.atan2(dy, Math.hypot(dx, dz)),
+  };
+}
+
+/** True when solid cover sits between two ground points. */
+export function hasLineOfSight(state, ax, az, bx, bz) {
+  for (const o of state.world.obstacles) {
+    // Waist-high crates do not hide a standing fighter; walls do.
+    if (o.height < CONFIG.aim.blockingHeight) continue;
+    if (segmentHitsBox(ax, az, bx, bz, o.x, o.z, o.hx, o.hz) < 1) return false;
+  }
+  return true;
+}
+
+/**
+ * Best aim-assist target for a given view.
+ *
+ * Returns { actor, yaw, pitch, weight, distance } or null. `weight` is 0..1 and
+ * falls off with the angular error and with distance, so a target near the
+ * crosshair pulls harder than one at the edge of the cone.
+ */
+export function findAimTarget(state, yaw, pitch, cfg = state.cfg) {
+  const aim = cfg.aim;
+  if (!aim || !aim.enabled) return null;
+  if (state.player.spectating != null) return null;
+
+  const player = findPlayer(state);
+  if (!player || !player.alive) return null;
+
+  let best = null;
+
+  for (const actor of state.actors) {
+    if (!actor.alive || actor.id === player.id) continue;
+
+    const dx = actor.x - player.x;
+    const dz = actor.z - player.z;
+    const distance = Math.hypot(dx, dz);
+    if (distance < 0.5 || distance > aim.maxRange) continue;
+
+    if (aim.requireLineOfSight && !hasLineOfSight(state, player.x, player.z, actor.x, actor.z)) {
+      continue;
+    }
+
+    // Aim point is the centre mass. Converging on the head made close-range
+    // shots sail over the target, so the head is only used as a tie-breaker
+    // for the reticle label — never as the resting point of the assist.
+    const baseY = Number.isFinite(actor.y) ? actor.y : 0;
+    const torso = lookAtAngles(
+      player,
+      { x: actor.x, y: baseY + aim.torsoHeight, z: actor.z },
+      cfg.playerEyeHeight,
+    );
+    const headAngles = lookAtAngles(
+      player,
+      { x: actor.x, y: baseY + 1.58, z: actor.z },
+      cfg.playerEyeHeight,
+    );
+
+    const yawErr = Math.abs(angleDelta(yaw, torso.yaw));
+    const pitchErr = Math.abs(torso.pitch - pitch);
+    const error = Math.hypot(yawErr, pitchErr * 0.75);
+    if (!Number.isFinite(error) || error > aim.assistCone) continue;
+
+    // 1 at the crosshair, 0 at the cone edge.
+    const nearness = 1 - error / aim.assistCone;
+    // Weaken with distance, but never below minDistanceScale.
+    const distanceScale = Math.max(
+      aim.minDistanceScale,
+      1 - (distance / aim.maxRange) * (1 - aim.minDistanceScale),
+    );
+    const weight = Math.pow(nearness, 1.6) * distanceScale;
+
+    // Retesting the head to label the lock: "am I roughly on his head?"
+    const headYawErr = Math.abs(angleDelta(yaw, headAngles.yaw));
+    const headPitchErr = Math.abs(headAngles.pitch - pitch);
+    const onHead = Math.hypot(headYawErr, headPitchErr * 0.75) < aim.headBiasCone;
+
+    if (!best || weight > best.weight) {
+      best = {
+        actorId: actor.id,
+        yaw: torso.yaw,
+        pitch: torso.pitch,
+        weight,
+        distance,
+        error,
+        head: onHead,
+      };
+    }
+  }
+
+  return best;
+}
+
+/**
+ * Bullet-magnetism search. Same idea as `findAimTarget` but it aims for the
+ * torso only, with the tighter `bulletMagnetCone`, and it is deliberately
+ * weaker than the view assist so it never feels like aimbot.
+ *
+ * Returns { actorId, yaw, pitch, strength } or null.
+ */
+export function findBulletTarget(state, yaw, pitch, cfg = state.cfg) {
+  const aim = cfg.aim;
+  if (!aim || !aim.enabled) return null;
+  if (state.player.spectating != null) return null;
+
+  const player = findPlayer(state);
+  if (!player || !player.alive) return null;
+
+  let best = null;
+
+  for (const actor of state.actors) {
+    if (!actor.alive || actor.id === player.id) continue;
+
+    const dx = actor.x - player.x;
+    const dz = actor.z - player.z;
+    const distance = Math.hypot(dx, dz);
+    if (distance < 0.5 || distance > aim.maxRange) continue;
+
+    if (aim.requireLineOfSight && !hasLineOfSight(state, player.x, player.z, actor.x, actor.z)) {
+      continue;
+    }
+
+    // Torso, not head.
+    const baseY = Number.isFinite(actor.y) ? actor.y : 0;
+    const angles = lookAtAngles(
+      player,
+      { x: actor.x, y: baseY + aim.torsoHeight, z: actor.z },
+      cfg.playerEyeHeight,
+    );
+
+    const yawErr = Math.abs(angleDelta(yaw, angles.yaw));
+    const pitchErr = Math.abs(angles.pitch - pitch);
+    const error = Math.hypot(yawErr, pitchErr * 0.75);
+    if (!Number.isFinite(error) || error > aim.bulletMagnetCone) continue;
+
+    const nearness = 1 - error / aim.bulletMagnetCone;
+    const strength = aim.bulletMagnetStrength * Math.pow(nearness, 1.4);
+    if (!best || strength > best.strength) {
+      best = {
+        actorId: actor.id,
+        yaw: yaw + angleDelta(yaw, angles.yaw) * strength,
+        pitch: pitch + (angles.pitch - pitch) * strength,
+        strength,
+        distance,
+      };
+    }
+  }
+
+  return best;
+}
+
+/**
+ * Pull the view toward the assist target. Called every frame with the raw
+ * look angles. Returns the (possibly adjusted) angles plus the target, so the
+ * renderer can highlight the enemy and the HUD can show the lock reticle.
+ */
+export function applyAimAssist(state, yaw, pitch, dt, cfg = state.cfg) {
+  const aim = cfg.aim;
+  if (!aim || !aim.enabled || dt <= 0) {
+    return { yaw, pitch, target: null };
+  }
+
+  const target = findAimTarget(state, yaw, pitch, cfg);
+  if (!target) return { yaw, pitch, target: null };
+
+  const pull = Math.min(1, aim.assistStrength * target.weight);
+  // Frame-rate independent approach.
+  const k = 1 - Math.exp(-aim.assistRate * pull * dt);
+
+  return {
+    yaw: yaw + angleDelta(yaw, target.yaw) * k,
+    pitch: pitch + (target.pitch - pitch) * k,
+    target,
+  };
+}
+
 export function firePlayerShot(state, yaw, pitch) {
   const cfg = state.cfg;
   const p = state.player;
@@ -591,7 +830,26 @@ export function firePlayerShot(state, yaw, pitch) {
   const originX = player.x;
   const originY = cfg.playerEyeHeight - (player.crouching ? 0.35 : 0);
   const originZ = player.z;
-  const base = aimDirection(yaw, pitch);
+
+  // ---- bullet magnetism -------------------------------------------------
+  // Bullets curve toward whichever enemy is closest to the crosshair. This is
+  // the "my shots keep landing" feel of a mobile shooter, and it is disabled
+  // for robots / with aim.enabled = false.
+  const aim = cfg.aim;
+  let aimYaw = yaw;
+  let aimPitch = pitch;
+  let magnetTarget = null;
+
+  if (aim && aim.enabled) {
+    const magnet = findBulletTarget(state, yaw, pitch, cfg);
+    if (magnet) {
+      aimYaw = magnet.yaw;
+      aimPitch = magnet.pitch;
+      magnetTarget = magnet.actorId;
+    }
+  }
+
+  const base = aimDirection(aimYaw, aimPitch);
 
   const pellets = [];
   for (let i = 0; i < weapon.pellets; i++) {
@@ -641,7 +899,13 @@ export function firePlayerShot(state, yaw, pitch) {
   }
 
   // Recoil kicks the camera up, more for heavy weapons.
-  state.events.push({ type: 'shot', shots: pellets, weapon: weapon.id, recoil: weapon.recoil });
+  state.events.push({
+    type: 'shot',
+    shots: pellets,
+    weapon: weapon.id,
+    recoil: weapon.recoil,
+    magnetTarget,
+  });
   return pellets;
 }
 
@@ -674,6 +938,13 @@ export function applyDamage(state, victim, amount, attacker, now = state.time, w
   }
 
   if (victim.isPlayer && attacker) {
+    state.events.push({
+      type: 'damage',
+      victimId: victim.id,
+      byId: attacker.id,
+      amount: applied,
+      weapon: weaponId,
+    });
     state.player.damageFlash = Math.min(0.42, state.player.damageFlash + 0.2);
     state.player.damageIndicators.push({
       angle: victim.lastDamageAngle,

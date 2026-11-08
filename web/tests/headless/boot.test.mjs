@@ -55,7 +55,75 @@ function mkNode(tag = 'div', id = '') {
     },
     querySelector() { return null; },
     querySelectorAll() { return []; },
-    getContext() { return {}; },
+    getContext(kind) {
+      if (kind !== '2d') return {};
+      return make2dContext(this);
+    },
+  };
+}
+
+/**
+ * Minimal but honest CanvasRenderingContext2D.
+ *
+ * The renderer paints its textures procedurally at boot, so the headless boot
+ * has to be able to run that code. These stubs record nothing — they just have
+ * to accept the same calls a browser would, so a typo in the texture painters
+ * fails here instead of on the user's phone.
+ */
+function make2dContext(canvas) {
+  const gradient = () => ({ addColorStop() {} });
+  const noop = () => {};
+  return {
+    canvas,
+    globalAlpha: 1,
+    fillStyle: '#000',
+    strokeStyle: '#000',
+    lineWidth: 1,
+    lineCap: 'butt',
+    lineJoin: 'miter',
+    font: '10px sans-serif',
+    textAlign: 'start',
+    textBaseline: 'alphabetic',
+    shadowBlur: 0,
+    shadowColor: 'transparent',
+    globalCompositeOperation: 'source-over',
+    createLinearGradient: gradient,
+    createRadialGradient: gradient,
+    createPattern: () => ({}),
+    createImageData: (w, h) => ({ width: w, height: h, data: new Uint8ClampedArray(w * h * 4) }),
+    getImageData: (x, y, w, h) => ({ width: w, height: h, data: new Uint8ClampedArray(w * h * 4) }),
+    putImageData: noop,
+    measureText: (t) => ({ width: String(t).length * 6 }),
+    save: noop,
+    restore: noop,
+    beginPath: noop,
+    closePath: noop,
+    moveTo: noop,
+    lineTo: noop,
+    bezierCurveTo: noop,
+    quadraticCurveTo: noop,
+    arc: noop,
+    arcTo: noop,
+    ellipse: noop,
+    rect: noop,
+    roundRect: noop,
+    fill: noop,
+    stroke: noop,
+    clip: noop,
+    fillRect: noop,
+    strokeRect: noop,
+    clearRect: noop,
+    fillText: noop,
+    strokeText: noop,
+    translate: noop,
+    rotate: noop,
+    scale: noop,
+    transform: noop,
+    setTransform: noop,
+    resetTransform: noop,
+    drawImage: noop,
+    setLineDash: noop,
+    getLineDash: () => [],
   };
 }
 
