@@ -232,18 +232,28 @@ const finite = ['x', 'z', 'y', 'yaw', 'health'].every((k) => Number.isFinite(pla
 if (!finite) failures.push('player state has NaN');
 if (after.alive < 1) failures.push('everyone died instantly');
 
-// Regression: the local player is third person, so the BODY must stay on screen
-// during play. An earlier attempt at the duplicate-gun bug hid the whole body
-// instead of just its rifle. Only the rifle may be hidden.
+// Regression: static scenery must stay merged into a few draw calls.
+const stats = br.stats?.();
+if (stats) {
+  console.log('static batches       :', stats.staticBatches, '(was ~924 separate meshes)');
+  console.log('world meshes (total) :', stats.worldMeshes);
+  if (stats.staticBatches > 24) {
+    failures.push(`static scenery is not merged: ${stats.staticBatches} batches`);
+  }
+}
+
+// Regression: the local player is third person. The body must be on screen AND
+// it must carry the only weapon. There is no separate first-person viewmodel:
+// that floating gun was the "extra gun on the right" the player kept seeing.
 const playerView = br.views?.().get(player.id);
 if (playerView) {
   if (playerView.root?.visible === false) {
-    failures.push('local player body is hidden during play (only the gun should be)');
+    failures.push('local player body is hidden during play');
   }
-  if (playerView.gunPivot?.visible !== false) {
-    failures.push('local player body rifle is still visible (duplicate gun)');
+  if (playerView.gunPivot?.visible !== true) {
+    failures.push('local player body is not holding its rifle');
   }
-  console.log('body / body-rifle    :', playerView.root?.visible, '/', playerView.gunPivot?.visible, '(want true / false)');
+  console.log('body / body-rifle    :', playerView.root?.visible, '/', playerView.gunPivot?.visible, '(want true / true)');
 } else {
   console.log('body / body-rifle    : views map not exposed, skipping');
 }

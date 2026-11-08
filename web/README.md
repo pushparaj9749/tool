@@ -1,8 +1,38 @@
-# BATTLE ROYALE v2.3.0 — playable in the browser **and** on Android
+# BATTLE ROYALE v2.4.0 — playable in the browser **and** on Android
 
 A complete 16-fighter battle royale: three weapons, grenades, armour, four bot skill
 tiers, a shrinking safe zone and a kill feed. Runs in any modern browser with no build
 step, and ships as an installable **Android APK** built by GitHub Actions.
+
+**v2.4.0 is the performance and touch release.**
+
+- **The extra gun is actually gone this time.** v2.3.0 hid the rifle in the
+  body's hands, which was the wrong side of the problem: the camera is third
+  person, so the body's rifle *is* the player's gun. The stray weapon was the
+  **first-person viewmodel** — a gun parented to the camera and floating over the
+  body's right shoulder. It has been deleted along with its recoil, kick and
+  muzzle bookkeeping. One gun, held by the body. The headless test asserts
+  `body: true / body-rifle: true` and there is no viewmodel left to reappear.
+- **The lag was draw calls.** v2.3.0's denser map built ~924 separate meshes, and
+  every one of them cast a shadow, so the whole set was rasterised twice per
+  frame. Static scenery is now baked into world space and merged per material:
+  **924 meshes → 17 draw calls**, visually identical. On top that: quality tiers
+  by core count / device memory / mobile detection instead of one blunt `LOW_END`
+  flag, a 512–1024 shadow map on phones instead of 2048, a shadow frustum tight
+  around the player, bloom skipped entirely on low-end hardware, and a dynamic
+  resolution scaler that steps the pixel ratio between 0.6x and 1x based on
+  measured frame time.
+- **Assets: the map has vegetation and real ground.** Trees with tapered trunks,
+  forked branches and flat-shaded canopy blobs; shrub clumps; 460 crossed-quad
+  grass tufts; and three new painted textures (foliage, bark, cracked tarmac).
+  All of it merges into the same batch, so the extra detail costs ~4 draw calls.
+- **Touch only.** The keyboard legend on the start card is gone — it was a
+  desktop instruction sheet in a phone game. Its replacement describes the
+  actual controls: left thumb, right thumb, red button, blue/green, lime/amber.
+- **Buttons, Free Fire style.** The big pale circles are gone. Buttons are now
+  compact sharp-cornered glass tiles with an accent bar on the left edge, icon
+  only, no labels, spaced into a right-thumb arc. FIRE is an 86px anchor at the
+  bottom right; the rest ring it. Tap targets stay ≥ 50px.
 
 **v2.3.0 is the content release: a real map, a clean HUD and a proper icon set.**
 

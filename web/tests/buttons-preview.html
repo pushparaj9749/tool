@@ -1,5 +1,6 @@
 <!doctype html>
-<html><head><meta charset="utf-8"><title>Button design — v2.3.0</title>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Touch controls — v2.4.0</title>
 <style>
 
   :root {
@@ -268,53 +269,68 @@
   #lookZone { position: absolute; right: 0; top: 0; width: 50%; height: 100%; }
 
   /* ------------------------------------------------------- touch buttons
-     Round glass buttons with inline SVG glyphs. Each button carries its own
-     --accent so the icon, rim and glow all follow one colour. The old version
-     was a text label on a flat translucent circle: FIRE / RELOAD / HEAL all
-     read the same at arm's length on a phone. Icons are recognisable in a
-     glance, and the label underneath still spells it out. */
+     Free Fire style: small, sharp-edged glass tiles with a crisp SVG glyph,
+     spaced out around the right thumb instead of a jumble of big pale circles.
+     Each button owns one accent colour so the hand learns the layout without
+     reading anything. Tap target stays >= 52px, comfortably above the 44px
+     minimum, and the whole cluster sits inside the right thumb arc. */
   .btn {
-    position: absolute; display: flex; flex-direction: column;
-    align-items: center; justify-content: center; gap: 2px;
-    border-radius: 50%; pointer-events: auto; text-align: center;
-    color: #fff; font-weight: 900; letter-spacing: .07em;
-    --accent: rgba(255,255,255,.34);
-    border: 2px solid var(--accent);
-    background: radial-gradient(circle at 50% 32%, rgba(255,255,255,.20), rgba(255,255,255,.06) 62%, rgba(0,0,0,.20));
-    backdrop-filter: blur(7px);
-    -webkit-backdrop-filter: blur(7px);
-    box-shadow: 0 4px 16px rgba(0,0,0,.34), inset 0 1px 0 rgba(255,255,255,.20);
-    transition: transform .07s ease, background .10s ease, box-shadow .10s ease;
+    position: absolute; display: flex; align-items: center; justify-content: center;
+    border-radius: 14px; pointer-events: auto; color: #fff;
+    --accent: #ffffff;
+    background:
+      linear-gradient(160deg, rgba(255,255,255,.16), rgba(255,255,255,.03) 55%, rgba(0,0,0,.28));
+    border: 1.5px solid rgba(255,255,255,.30);
+    box-shadow:
+      inset 0 1px 0 rgba(255,255,255,.30),
+      inset 0 -2px 0 rgba(0,0,0,.28),
+      0 3px 10px rgba(0,0,0,.38);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    transition: transform .06s ease, box-shadow .10s ease, background .10s ease;
     -webkit-tap-highlight-color: transparent;
-    user-select: none;
+    user-select: none; touch-action: none;
+  }
+  /* The accent bar down the left edge: the fastest possible read of which
+     button is which, even in peripheral vision. */
+  .btn::before {
+    content: ""; position: absolute; left: 0; top: 22%; bottom: 22%; width: 3px;
+    border-radius: 0 3px 3px 0; background: var(--accent); opacity: .95;
+    box-shadow: 0 0 8px var(--accent);
   }
   .btn svg {
     width: 55%; height: 55%; display: block;
-    filter: drop-shadow(0 1px 2px rgba(0,0,0,.55));
+    filter: drop-shadow(0 1px 2px rgba(0,0,0,.7));
     pointer-events: none;
   }
   .btn .lbl {
-    font-size: 8.5px; line-height: 1; opacity: .78;
-    text-shadow: 0 1px 2px rgba(0,0,0,.75); pointer-events: none;
+    display: none;   /* icons only, like the real thing */
   }
-  .btn:active, .btn.down {
-    transform: scale(.93);
-    background: radial-gradient(circle at 50% 40%, rgba(255,255,255,.42), rgba(255,255,255,.20));
-    box-shadow: 0 0 0 3px rgba(255,255,255,.10), 0 0 22px var(--accent);
+  .btn.down, .btn:active {
+    transform: scale(.90);
+    background: linear-gradient(160deg, rgba(255,255,255,.34), rgba(255,255,255,.10));
+    box-shadow:
+      inset 0 0 14px var(--accent),
+      0 0 16px rgba(255,255,255,.18),
+      0 1px 4px rgba(0,0,0,.4);
   }
 
+  /* Right-thumb cluster. Fire is the anchor at the bottom right; the rest ring
+     it at a comfortable arc. */
   #btnFire {
-    right: 20px; bottom: 24px; width: 92px; height: 92px;
-    --accent: rgba(255,90,90,.78);
-    background: radial-gradient(circle at 50% 32%, rgba(255,110,110,.38), rgba(255,40,40,.14) 64%, rgba(0,0,0,.24));
+    right: 18px; bottom: 20px; width: 86px; height: 86px; border-radius: 20px;
+    --accent: #ff3b46;
+    background: linear-gradient(160deg, rgba(255,80,90,.34), rgba(150,15,25,.30) 60%, rgba(0,0,0,.32));
+    border-color: rgba(255,110,118,.55);
   }
-  #btnFire svg { width: 46%; height: 46%; }
-  #btnReload { right: 124px; bottom: 92px; width: 62px; height: 62px; --accent: rgba(120,200,255,.62); }
-  #btnHeal { right: 20px; bottom: 128px; width: 62px; height: 62px; --accent: rgba(80,255,140,.70); }
-  #btnJump { right: 124px; bottom: 22px; width: 58px; height: 58px; --accent: rgba(255,255,255,.42); }
-  #btnGrenade { right: 88px; bottom: 172px; width: 58px; height: 58px; --accent: rgba(190,255,90,.66); }
-  #btnSwap { right: 200px; bottom: 40px; width: 52px; height: 52px; --accent: rgba(255,205,110,.60); }
-  #btnSwap .lbl, #btnGrenade .lbl, #btnJump .lbl { display: none; }
+  #btnFire svg { width: 50%; height: 50%; }
+  #btnFire::before { top: 16%; bottom: 16%; width: 4px; }
+
+  #btnReload  { right: 116px; bottom: 86px; width: 56px; height: 56px; --accent: #4cc9ff; }
+  #btnHeal    { right: 18px;  bottom: 118px; width: 56px; height: 56px; --accent: #35e07a; }
+  #btnJump    { right: 118px; bottom: 18px;  width: 54px; height: 54px; --accent: #e8f2ff; }
+  #btnGrenade { right: 84px;  bottom: 158px; width: 50px; height: 50px; --accent: #b7f43a; }
+  #btnSwap    { right: 182px; bottom: 46px;  width: 50px; height: 50px; --accent: #ffc247; }
 
   #hint { position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%); font-size: 10.5px; opacity: .38; letter-spacing: .1em; white-space: nowrap; }
 
@@ -328,59 +344,53 @@
     #killFeed { top: 88px; }
   }
 
-  body { margin:0; background: radial-gradient(circle at 50% 0%, #223040, #0a0f14 70%); min-height:100vh;
-         font-family: inherit; color:#eaf4fb; }
-  .wrap { max-width: 880px; margin: 0 auto; padding: 34px 22px 60px; }
-  h2 { font-size:13px; letter-spacing:.24em; opacity:.5; font-weight:800; margin: 0 0 6px; }
-  h1 { font-size:26px; margin:0 0 26px; letter-spacing:.02em; }
-  .grid { display:flex; align-items:flex-end; gap:18px; flex-wrap:wrap;
-           background: rgba(255,255,255,.035); border:1px solid rgba(255,255,255,.08);
-           border-radius:16px; padding:24px; margin-bottom:24px; }
-  .cell { width:104px; text-align:center; }
-  .cell .name { font-size:9.5px; letter-spacing:.14em; opacity:.45; margin-top:9px; }
-  .cell .stage { width:100%; height:104px; display:flex; align-items:center; justify-content:center; }
-  .cell .stage .btn { position:relative !important; right:auto !important; bottom:auto !important;
-                       left:auto !important; top:auto !important; }
-  .card { background: rgba(255,255,255,.04); border:1px solid rgba(255,255,255,.09);
-           border-radius:18px; padding:26px; max-width:390px; }
-  .pressed .btn { transform: scale(.93);
-                   background: radial-gradient(circle at 50% 40%, rgba(255,255,255,.42), rgba(255,255,255,.20)); }
+  html,body { margin:0; height:100%; }
+  body { background:
+      radial-gradient(circle at 62% 26%, #6d8fa8 0%, #4d6b82 26%, #35505f 52%, #1b2b33 100%);
+      color:#eaf4fb; overflow:hidden; }
+  /* a fake horizon + ground so the white HUD reads like it is over gameplay */
+  body::before { content:""; position:fixed; left:0; right:0; top:52%; bottom:0;
+      background: linear-gradient(180deg,#3c5a3a,#22331f 60%,#141d11); }
+  .stage { position:fixed; inset:0; }
+  .stage .btn { position:absolute; }
+  .note { position:fixed; left:22px; top:20px; font-size:11px; letter-spacing:.16em;
+      opacity:.62; line-height:1.9; max-width:330px; }
+  .note b { color:#8fe3ff; }
+  .sizes { position:fixed; left:22px; bottom:18px; font-size:10px; letter-spacing:.1em;
+      opacity:.45; line-height:1.8; }
+  .sizes span { color:#ffd479; }
+  /* lifted straight from the game: same ids, same rules, same offsets */
 </style></head>
-<body><div class="wrap">
-  <h2>ANKIT · BATTLE ROYALE</h2>
-  <h1>Touch buttons — SVG icon set</h1>
-
-  <h2>GAMEPLAY BUTTONS · REST</h2>
-  <div class="grid">
-    <div class="cell"><div class="stage"><div class="btn" id="btnFire" role="button" aria-label="Fire">
+<body>
+  <div class="stage"><div class="btn" id="btnFire" role="button" aria-label="Fire">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"
          stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
       <circle cx="12" cy="12" r="7.2" />
       <circle cx="12" cy="12" r="2.1" fill="currentColor" stroke="none" />
       <path d="M12 1.4v4.2M12 18.4v4.2M1.4 12h4.2M18.4 12h4.2" />
     </svg>
-  </div></div><div class="name">FIRE</div></div><div class="cell"><div class="stage"><div class="btn" id="btnReload" role="button" aria-label="Reload">
+  </div><div class="btn" id="btnReload" role="button" aria-label="Reload">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
          stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
       <path d="M20.4 12a8.4 8.4 0 1 1-2.6-6.05" />
       <path d="M20.9 4.2v5.1h-5.1" />
     </svg>
     <span class="lbl">RELOAD</span>
-  </div></div><div class="name">RELOAD</div></div><div class="cell"><div class="stage"><div class="btn" id="btnHeal" role="button" aria-label="Heal">
+  </div><div class="btn" id="btnHeal" role="button" aria-label="Heal">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
          stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
       <rect x="3.2" y="5.4" width="17.6" height="14" rx="3" />
       <path d="M9 11.6h6M12 8.6v6" stroke-width="2.4" />
     </svg>
     <span class="lbl">HEAL</span>
-  </div></div><div class="name">HEAL</div></div><div class="cell"><div class="stage"><div class="btn" id="btnJump" role="button" aria-label="Jump">
+  </div><div class="btn" id="btnJump" role="button" aria-label="Jump">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1"
          stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
       <path d="M6.4 11.6 12 6l5.6 5.6" />
       <path d="M6.4 17 12 11.4 17.6 17" opacity=".55" />
       <path d="M4.6 20.4h14.8" opacity=".45" />
     </svg>
-  </div></div><div class="name">JUMP</div></div><div class="cell"><div class="stage"><div class="btn" id="btnGrenade" role="button" aria-label="Grenade">
+  </div><div class="btn" id="btnGrenade" role="button" aria-label="Grenade">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"
          stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
       <ellipse cx="12" cy="14.4" rx="5.6" ry="6.4" />
@@ -388,50 +398,21 @@
       <path d="M14.6 5.2c1.9.1 3.1 1.1 3.3 2.9" opacity=".7" />
       <path d="M7.6 11.4v6.2" opacity=".35" />
     </svg>
-  </div></div><div class="name">GRENADE</div></div><div class="cell"><div class="stage"><div class="btn" id="btnSwap" role="button" aria-label="Swap weapon">
+  </div><div class="btn" id="btnSwap" role="button" aria-label="Swap weapon">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
          stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
       <path d="M4.4 8.6h13.2M14.2 5.2l3.4 3.4-3.4 3.4" />
       <path d="M19.6 15.4H6.4M9.8 12l-3.4 3.4 3.4 3.4" />
     </svg>
-  </div></div><div class="name">SWAP</div></div>
+  </div></div>
+  <div class="note">
+    <b>TOUCH CONTROLS · v2.4.0</b><br>
+    Free-Fire style tiles: sharp 14px corners,<br>
+    accent bar on the left edge, icon only.<br>
+    Right-thumb cluster — nothing to read.
   </div>
-
-  <h2>PRESSED STATE</h2>
-  <div class="grid pressed">
-    <div class="cell"><div class="stage"><div class="btn" id="btnFire" role="button" aria-label="Fire">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"
-         stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-      <circle cx="12" cy="12" r="7.2" />
-      <circle cx="12" cy="12" r="2.1" fill="currentColor" stroke="none" />
-      <path d="M12 1.4v4.2M12 18.4v4.2M1.4 12h4.2M18.4 12h4.2" />
-    </svg>
-  </div></div><div class="name">FIRE</div></div><div class="cell"><div class="stage"><div class="btn" id="btnReload" role="button" aria-label="Reload">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-         stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-      <path d="M20.4 12a8.4 8.4 0 1 1-2.6-6.05" />
-      <path d="M20.9 4.2v5.1h-5.1" />
-    </svg>
-    <span class="lbl">RELOAD</span>
-  </div></div><div class="name">RELOAD</div></div><div class="cell"><div class="stage"><div class="btn" id="btnHeal" role="button" aria-label="Heal">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-         stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-      <rect x="3.2" y="5.4" width="17.6" height="14" rx="3" />
-      <path d="M9 11.6h6M12 8.6v6" stroke-width="2.4" />
-    </svg>
-    <span class="lbl">HEAL</span>
-  </div></div><div class="name">HEAL</div></div>
+  <div class="sizes">
+    FIRE <span>86px</span> · RELOAD <span>56</span> · HEAL <span>56</span> ·
+    JUMP <span>54</span> · NADE <span>50</span> · SWAP <span>50</span>
   </div>
-
-  <h2>MENU BUTTONS</h2>
-  <div class="card">
-    <button id="btnStart">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.4 12.6 21 4.2l-4.2 17.1-4.5-6.4z"/><path d="m10.4 14.9 10.6-10.7" opacity=".55"/></svg>
-      <span>DEPLOY</span>
-    </button>
-    <button id="btnAgain">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.6 12a8.6 8.6 0 1 1-2.7-6.2"/><path d="M21.1 4.1v5.2h-5.2"/></svg>
-      <span>PLAY AGAIN</span>
-    </button>
-  </div>
-</div></body></html>
+</body></html>

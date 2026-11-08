@@ -8,7 +8,7 @@
  *
  * Visual pass: PCF shadows, ACES tonemapping, UnrealBloom, a sky shader,
  * muzzle flash, impact sparks, grenade arcs/blasts, tracers, weapon
- * viewmodel, screen shake and a spectator camera.
+ * screen shake and a spectator camera.
  * ========================================================================== */
 
 import * as THREE from '../vendor/three.module.min.js';
@@ -16,6 +16,7 @@ import { EffectComposer } from '../vendor/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from '../vendor/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from '../vendor/jsm/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from '../vendor/jsm/postprocessing/OutputPass.js';
+import { mergeGeometries } from '../vendor/jsm/utils/BufferGeometryUtils.js';
 
 import {
   CONFIG,
@@ -49,8 +50,26 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.12;
 
-const LOW_END = (navigator.hardwareConcurrency || 4) <= 2;
-if (LOW_END) renderer.setPixelRatio(1);
+/**
+ * Quality tiers.
+ *
+ * Phones were being treated as either "fine" or "terrible" by core count alone,
+ * which meant most mid-range Android devices got a 2048 shadow map and a full
+ * bloom chain at devicePixelRatio 2 -- the three most expensive things in the
+ * frame. Tier by the signals that actually predict GPU headroom, and let the
+ * dynamic scaler below drop a tier if frames still run long.
+ */
+const CORES = navigator.hardwareConcurrency || 4;
+const MEMORY_GB = navigator.deviceMemory || 4;
+const IS_MOBILE = /android|iphone|ipad|ipod|mobile/i.test(navigator.userAgent)
+  || matchMedia('(pointer: coarse)').matches;
+
+const LOW_END = CORES <= 2 || MEMORY_GB <= 2;
+const MOBILE = IS_MOBILE && !LOW_END;
+
+// Cap the pixel ratio hard. A 3x-DPR phone rendering at 2.5x is asking the GPU
+// for 6x the pixels of a 1x display for no visible gain on a phone screen.
+renderer.setPixelRatio(LOW_END ? 1 : MOBILE ? Math.min(devicePixelRatio || 1, 1.5) : Math.min(devicePixelRatio || 1, 2));
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x8fb8cc);
@@ -67,13 +86,21 @@ scene.add(hemi);
 const sun = new THREE.DirectionalLight(0xfff0d0, 2.6);
 sun.position.set(60, 90, 40);
 sun.castShadow = true;
-sun.shadow.mapSize.set(LOW_END ? 1024 : 2048, LOW_END ? 1024 : 2048);
+// Shadow resolution is the single biggest per-frame cost after draw calls: every
+// caster is rasterised into this map before the colour pass.
+sun.shadow.mapSize.set(
+  LOW_END ? 512 : MOBILE ? 1024 : 2048,
+  LOW_END ? 512 : MOBILE ? 1024 : 2048,
+);
 sun.shadow.camera.near = 10;
 sun.shadow.camera.far = 300;
-sun.shadow.camera.left = -110;
-sun.shadow.camera.right = 110;
-sun.shadow.camera.top = 110;
-sun.shadow.camera.bottom = -110;
+// A tight frustum around the player gives sharper shadows at a lower
+// resolution, which is exactly what a phone needs.
+const SHADOW_SPAN = LOW_END ? 30 : MOBILE ? 42 : 70;
+sun.shadow.camera.left = -SHADOW_SPAN;
+sun.shadow.camera.right = SHADOW_SPAN;
+sun.shadow.camera.top = SHADOW_SPAN;
+sun.shadow.camera.bottom = -SHADOW_SPAN;
 sun.shadow.bias = -0.0008;
 sun.shadow.normalBias = 0.02;
 scene.add(sun);
@@ -973,6 +1000,94 @@ function paintGrass() {
   return canvas;
 }
 
+/**
+ * Canopy texture: clusters of leaf-shaped blobs in two greens so the flat-shaded
+ * foliage solids read as leaves rather than plastic. Lit from the top.
+ */
+function paintFoliage() {
+  const { canvas, ctx, size } = makeCanvas(256);
+  const rng = mulberry32(4411);
+
+  ctx.fillStyle = '#3f5726';
+  ctx.fillRect(0, 0, size, size);
+
+  // Leaf clusters, lighter toward the top so the canopy has some form.
+  for (let i = 0; i < 900; i++) {
+    const x = rng() * size;
+    const y = rng() * size;
+    const r = 3 + rng() * 11;
+    const lift = 1 - y / size;                 // 1 at the top, 0 at the bottom
+    const g = 70 + Math.floor(lift * 78 + rng() * 26);
+    ctx.fillStyle = `rgba(${34 + Math.floor(rng() * 28)},${g},${26 + Math.floor(rng() * 20)},${0.22 + rng() * 0.4})`;
+    ctx.beginPath();
+    ctx.ellipse(x, y, r, r * (0.55 + rng() * 0.5), rng() * Math.PI, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // A few dry leaves and dark gaps.
+  for (let i = 0; i < 90; i++) {
+    const x = rng() * size;
+    const y = rng() * size;
+    ctx.fillStyle = rng() > 0.5 ? 'rgba(120,104,44,0.42)' : 'rgba(18,28,12,0.42)';
+    ctx.beginPath();
+    ctx.ellipse(x, y, 2 + rng() * 5, 1.5 + rng() * 3, rng() * Math.PI, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  return canvas;
+}
+
+/** Vertical bark striations. */
+function paintBark() {
+  const { canvas, ctx, size } = makeCanvas(128);
+  const rng = mulberry32(7788);
+
+  ctx.fillStyle = '#6b5540';
+  ctx.fillRect(0, 0, size, size);
+
+  for (let i = 0; i < 260; i++) {
+    const x = rng() * size;
+    const w = 1 + rng() * 3;
+    const shade = rng() > 0.5 ? 'rgba(48,36,26,0.55)' : 'rgba(148,124,98,0.35)';
+    ctx.fillStyle = shade;
+    ctx.beginPath();
+    ctx.moveTo(x, 0);
+    for (let y = 0; y <= size; y += 8) {
+      ctx.lineTo(x + Math.sin(y * 0.05 + i) * 2.2, y);
+    }
+    ctx.lineTo(x + w, size);
+    ctx.lineTo(x + w, 0);
+    ctx.fill();
+  }
+  return canvas;
+}
+
+/** Cracked asphalt for roads and the compound yards. */
+function paintTarmac() {
+  const { canvas, ctx, size } = makeCanvas(256);
+  const rng = mulberry32(31337);
+
+  ctx.fillStyle = '#3a3d3f';
+  ctx.fillRect(0, 0, size, size);
+  speckle(ctx, size, rng, 2200, ['#4a4d50', '#2e3133', '#565a5d'], 1, 3.4, 0.4);
+
+  // Hairline cracks.
+  for (let i = 0; i < 26; i++) {
+    let x = rng() * size;
+    let y = rng() * size;
+    ctx.strokeStyle = `rgba(20,22,24,${0.35 + rng() * 0.4})`;
+    ctx.lineWidth = 0.7 + rng() * 0.9;
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    for (let k = 0; k < 7; k++) {
+      x += (rng() - 0.5) * 26;
+      y += (rng() - 0.5) * 26;
+      ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+  }
+  return canvas;
+}
+
 function paintConcrete() {
   const { canvas, ctx, size } = makeCanvas(512);
   const rng = mulberry32(90210);
@@ -1134,6 +1249,9 @@ function buildTextures() {
 
   // Normal-ish roughness breakup; a cheap way to kill the plastic look.
   TEX.rough = toTexture(paintConcrete(), 1, { srgb: false });
+  TEX.foliage = toTexture(paintFoliage(), 2);
+  TEX.bark = toTexture(paintBark(), 3);
+  TEX.tarmac = toTexture(paintTarmac(), 1);
 }
 
 /* ------------------------------------------------------------------ mats */
@@ -1147,6 +1265,14 @@ const MAT = {
   roof: new THREE.MeshStandardMaterial({ map: TEX.metalRust, color: 0x8f9aa3, roughness: 0.72, metalness: 0.2 }),
   dark: new THREE.MeshStandardMaterial({ color: 0x1b222a, roughness: 0.45, metalness: 0.55 }),
   sandbag: new THREE.MeshStandardMaterial({ map: TEX.sandbag, color: 0xbfb48c, roughness: 0.97 }),
+  foliage: new THREE.MeshStandardMaterial({ map: TEX.foliage, color: 0x6f9a44, roughness: 0.95, flatShading: true }),
+  foliageDeep: new THREE.MeshStandardMaterial({ map: TEX.foliage, color: 0x47692f, roughness: 0.97, flatShading: true }),
+  bark: new THREE.MeshStandardMaterial({ map: TEX.bark, color: 0x8a7055, roughness: 0.95 }),
+  bush: new THREE.MeshStandardMaterial({ color: 0x5c7f38, roughness: 1.0, flatShading: true }),
+  grassBlade: new THREE.MeshStandardMaterial({
+    map: TEX.foliage, color: 0x93b055, roughness: 1, side: THREE.DoubleSide,
+    transparent: true, alphaTest: 0.28,
+  }),
   crate: new THREE.MeshStandardMaterial({ map: TEX.crate, color: 0xc9ab80, roughness: 0.86 }),
   crateMetal: new THREE.MeshStandardMaterial({ map: TEX.metalBlue, color: 0xa8b8c6, roughness: 0.5, metalness: 0.55 }),
   player: new THREE.MeshStandardMaterial({ color: 0x1e9ef2, roughness: 0.42, metalness: 0.2 }),
@@ -1192,6 +1318,101 @@ function disposeGroup(group) {
   }
 }
 
+/**
+ * Collapse the static scenery into one mesh per material.
+ *
+ * The map is built from ~950 small meshes (building shells, parapets, window
+ * panels, sandbag courses, wall piers, props). Each one is a separate draw
+ * call, and because every one of them casts a shadow the whole set is drawn
+ * twice per frame -- once into the shadow map, once into colour. That is what
+ * made the game feel laggy, and it got worse in v2.3.0 when the map got denser.
+ *
+ * Nothing in this group moves, so the geometry can be baked into world space and
+ * merged per material. Draw calls drop from ~950 to roughly the number of
+ * distinct materials (about a dozen), with identical visuals. Anything that
+ * needs to move -- actors, loot, grenades, the zone -- is not in this group.
+ */
+function mergeStatic(root) {
+  const buckets = new Map();
+  const doomed = [];
+
+  root.traverse((node) => {
+    if (!node.isMesh || node.isInstancedMesh) return;
+    if (node.userData.dynamic) return;
+
+    // Only merge plain triangle geometry; skip lines, points and grids.
+    const geo = node.geometry;
+    if (!geo || geo.isBufferGeometry !== true || !geo.index === false && !geo.attributes.position) return;
+    if (!node.material || Array.isArray(node.material)) return;
+
+    // matrixWorld already includes every parent transform up to the scene root,
+    // so baking it puts this geometry in world space regardless of how deeply it
+    // is nested inside buildObstacle's group. Nothing re-parents it afterwards.
+    node.updateWorldMatrix(true, false);
+
+    const clone = geo.clone();
+    clone.applyMatrix4(node.matrixWorld);
+
+    // Merging needs a consistent attribute set, and UVs are what the painted
+    // textures rely on, so normalise to position + normal + uv only.
+    for (const name of Object.keys(clone.attributes)) {
+      if (name !== 'position' && name !== 'normal' && name !== 'uv') {
+        clone.deleteAttribute(name);
+      }
+    }
+    if (!clone.attributes.normal) clone.computeVertexNormals();
+    if (!clone.attributes.uv) {
+      const count = clone.attributes.position.count;
+      clone.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(count * 2), 2));
+    }
+
+    // mergeGeometries refuses a mix of indexed and non-indexed inputs, and the
+    // scene has both (boxes are indexed, icosahedra are not). Give every
+    // geometry an index so they can be combined.
+    if (!clone.index) {
+      const count = clone.attributes.position.count;
+      const order = new Array(count);
+      for (let i = 0; i < count; i++) order[i] = i;
+      clone.setIndex(order);
+    }
+
+    const key = `${node.material.uuid}|${node.castShadow ? 1 : 0}|${node.receiveShadow ? 1 : 0}`;
+    if (!buckets.has(key)) {
+      buckets.set(key, { material: node.material, cast: node.castShadow, receive: node.receiveShadow, list: [] });
+    }
+    buckets.get(key).list.push(clone);
+    doomed.push(node);
+  });
+
+  for (const node of doomed) node.parent?.remove(node);
+
+  // Removing the meshes leaves their now-empty wrapper Groups behind. They cost
+  // nothing to draw but they are dead weight, so prune them.
+  const empties = [];
+  root.traverse((node) => {
+    if (node !== root && node.isGroup && node.children.length === 0) empties.push(node);
+  });
+  for (const g of empties) g.parent?.remove(g);
+
+  for (const bucket of buckets.values()) {
+    if (bucket.list.length === 0) continue;
+    const merged = bucket.list.length === 1
+      ? bucket.list[0]
+      : mergeGeometries(bucket.list, false);
+    bucket.list.forEach((g, i) => { if (g !== merged) g.dispose(); });
+    if (!merged) continue;
+
+    merged.computeBoundingSphere();
+    const mesh = new THREE.Mesh(merged, bucket.material);
+    mesh.castShadow = bucket.cast;
+    mesh.receiveShadow = bucket.receive;
+    // Baking positions into world space means the group must not transform.
+    mesh.matrixAutoUpdate = false;
+    mesh.userData.merged = true;
+    root.add(mesh);
+  }
+}
+
 function buildWorld(state) {
   disposeGroup(worldGroup);
   actorViews.clear();
@@ -1218,6 +1439,7 @@ function buildWorld(state) {
   // Props break up the boxy silhouette: barrels, crates and rocks scattered
   // deterministically so a spot looks the same on every run.
   buildProps(state);
+  buildGrassField(state);
 
   for (const w of state.world.windows) {
     const panel = new THREE.Mesh(BOX, MAT.dark);
@@ -1226,9 +1448,15 @@ function buildWorld(state) {
     worldGroup.add(panel);
   }
 
+  // Everything above is static scenery. Bake it down to a handful of draw
+  // calls BEFORE the moving objects (loot, actors) are added, so they are not
+  // swept into the merge.
+  mergeStatic(worldGroup);
+
   for (const item of state.loot) {
     const mesh = buildLoot(item);
     mesh.position.set(item.x, item.y, item.z);
+    mesh.userData.dynamic = true;
     worldGroup.add(mesh);
     lootViews.set(item.id, mesh);
   }
@@ -1240,7 +1468,6 @@ function buildWorld(state) {
   }
 
   buildZone(state);
-  buildViewmodel();
 }
 
 /**
@@ -1463,6 +1690,105 @@ function buildObstacle(o, isBuilding) {
  * touches collision — but it is what makes the map stop looking like a
  * physics test scene.
  */
+/**
+ * Low-poly but convincingly tree-shaped: a tapered trunk with a lean, a couple
+ * of forked branches, and two or three overlapping canopy blobs. The canopy is
+ * flat-shaded so the facets catch the sun and it does not read as a sphere.
+ */
+function buildTree(x, z, scale, yaw, rng) {
+  const group = new THREE.Group();
+  group.position.set(x, 0, z);
+  group.rotation.y = yaw;
+
+  const trunkH = (2.1 + rng() * 1.5) * scale;
+
+  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.12 * scale, 0.28 * scale, trunkH, 6), MAT.bark);
+  trunk.position.y = trunkH / 2;
+  trunk.rotation.z = (rng() - 0.5) * 0.12;
+  trunk.castShadow = true;
+  trunk.receiveShadow = true;
+  group.add(trunk);
+
+  // Two forked branches angling out of the upper trunk.
+  for (let i = 0; i < 2; i++) {
+    const len = (0.7 + rng() * 0.6) * scale;
+    const branch = new THREE.Mesh(new THREE.CylinderGeometry(0.05 * scale, 0.11 * scale, len, 5), MAT.bark);
+    branch.position.set(0, trunkH * (0.62 + i * 0.14), 0);
+    branch.rotation.z = (i ? 1 : -1) * (0.55 + rng() * 0.3);
+    branch.rotation.y = rng() * Math.PI;
+    branch.castShadow = true;
+    group.add(branch);
+  }
+
+  // Canopy: overlapping icosahedra, alternating two greens.
+  const blobs = 2 + ((rng() * 2) | 0);
+  for (let i = 0; i < blobs; i++) {
+    const r = (0.95 + rng() * 0.6) * scale;
+    const canopy = new THREE.Mesh(new THREE.IcosahedronGeometry(r, 0), i % 2 ? MAT.foliage : MAT.foliageDeep);
+    canopy.position.set(
+      (rng() - 0.5) * 0.9 * scale,
+      trunkH + (rng() - 0.2) * 0.55 * scale,
+      (rng() - 0.5) * 0.9 * scale,
+    );
+    canopy.scale.y = 0.78 + rng() * 0.24;
+    canopy.rotation.set(rng() * 3, rng() * 3, rng() * 3);
+    canopy.castShadow = true;
+    canopy.receiveShadow = true;
+    group.add(canopy);
+  }
+
+  worldGroup.add(group);
+}
+
+/** A clump of low shrubs: three squashed spheres, no trunk. */
+function buildBush(x, z, scale, yaw, rng) {
+  const group = new THREE.Group();
+  group.position.set(x, 0, z);
+  group.rotation.y = yaw;
+
+  const lobes = 2 + ((rng() * 3) | 0);
+  for (let i = 0; i < lobes; i++) {
+    const r = (0.32 + rng() * 0.34) * scale;
+    const lobe = new THREE.Mesh(new THREE.IcosahedronGeometry(r, 0), MAT.bush);
+    lobe.position.set((rng() - 0.5) * 0.8 * scale, r * 0.72, (rng() - 0.5) * 0.8 * scale);
+    lobe.scale.y = 0.68 + rng() * 0.22;
+    lobe.rotation.set(rng() * 3, rng() * 3, rng() * 3);
+    lobe.castShadow = true;
+    lobe.receiveShadow = true;
+    group.add(lobe);
+  }
+
+  worldGroup.add(group);
+}
+
+/**
+ * Tall grass tufts: two crossed quads per clump. Cheap, and because they are
+ * static in world space they get swept into the same material merge as the rest
+ * of the scenery -- 500 tufts cost one extra draw call, not 500.
+ */
+function buildGrassField(state) {
+  const rng = mulberry32(9091);
+  const half = state.cfg.mapSize / 2 - 4;
+  const bladeGeo = new THREE.PlaneGeometry(0.55, 0.68);
+
+  for (let i = 0; i < 460; i++) {
+    const x = (rng() * 2 - 1) * half;
+    const z = (rng() * 2 - 1) * half;
+    const s = 0.7 + rng() * 1.0;
+    const yaw = rng() * Math.PI;
+
+    for (let q = 0; q < 2; q++) {
+      const blade = new THREE.Mesh(bladeGeo, MAT.grassBlade);
+      blade.scale.set(s, s * (0.75 + rng() * 0.7), s);
+      blade.position.set(x, 0.32 * s, z);
+      blade.rotation.y = yaw + q * Math.PI / 2;
+      blade.castShadow = false;      // grass shadows are not worth the cost
+      blade.receiveShadow = true;
+      worldGroup.add(blade);
+    }
+  }
+}
+
 function buildProps(state) {
   const rng = mulberry32(20240607);
   const half = state.cfg.mapSize / 2 - 6;
@@ -1486,6 +1812,19 @@ function buildProps(state) {
 
     const kind = rng();
     const yaw = rng() * Math.PI * 2;
+
+    // Trees and bushes are the biggest visual win on a flat outdoor map: they
+    // give the ground vertical interest and break up silhouettes at range.
+    if (kind < 0.18) {
+      buildTree(x, z, 0.8 + rng() * 0.9, yaw, rng);
+      placed++;
+      continue;
+    }
+    if (kind < 0.30) {
+      buildBush(x, z, 0.7 + rng() * 0.8, yaw, rng);
+      placed++;
+      continue;
+    }
 
     if (kind < 0.3) {
       // Oil barrel.
@@ -1887,109 +2226,6 @@ function updateZoneMesh(state) {
   pos.needsUpdate = true;
   zoneRing.geometry.computeBoundingSphere();
   zoneWall.scale.set(radius, 1, radius);
-}
-
-/* ------------------------------------------------------------- viewmodel */
-
-let viewmodel = null;
-
-/**
- * First-person weapon. Each gun gets its own silhouette so swapping weapons is
- * visible without reading the HUD, and gloved hands hold the thing so it does
- * not float in space.
- */
-function buildViewmodel() {
-  if (viewmodel) {
-    camera.remove(viewmodel.root);
-  }
-
-  const root = new THREE.Group();
-  const gunRoot = new THREE.Group();
-  root.add(gunRoot);
-
-  const metal = new THREE.MeshStandardMaterial({ color: 0x22262b, roughness: 0.46, metalness: 0.72 });
-  const polymer = new THREE.MeshStandardMaterial({ color: 0x14181c, roughness: 0.86, metalness: 0.05 });
-  const accent = new THREE.MeshStandardMaterial({ color: 0x3a4550, roughness: 0.55, metalness: 0.45 });
-  const gloveMat = new THREE.MeshStandardMaterial({ color: 0x1e2429, roughness: 0.9 });
-  const skinMat = new THREE.MeshStandardMaterial({ color: 0x8d6a4f, roughness: 0.82 });
-
-  const part = (geo, mat, sx, sy, sz, x, y, z) => {
-    const m = new THREE.Mesh(geo, mat);
-    m.scale.set(sx, sy, sz);
-    m.position.set(x, y, z);
-    gunRoot.add(m);
-    return m;
-  };
-
-  // ---- receiver / body -------------------------------------------------
-  const body = part(BOX, metal, 0.075, 0.085, 0.46, 0, 0, -0.16);
-
-  // Upper rail with teeth.
-  const rail = part(BOX, accent, 0.05, 0.022, 0.36, 0, 0.052, -0.2);
-  for (let i = 0; i < 7; i++) {
-    part(BOX, accent, 0.056, 0.014, 0.014, 0, 0.066, -0.36 + i * 0.048);
-  }
-
-  // ---- stock, grip, trigger guard -------------------------------------
-  part(BOX, polymer, 0.055, 0.075, 0.2, 0, -0.012, 0.1);          // stock
-  part(BOX, polymer, 0.05, 0.12, 0.07, 0, -0.09, 0.045);          // grip
-  part(BOX, polymer, 0.03, 0.05, 0.09, 0, -0.055, -0.1);          // trigger guard
-
-  // ---- magazine --------------------------------------------------------
-  const magazine = part(BOX, accent, 0.048, 0.16, 0.075, 0, -0.115, -0.2);
-  magazine.rotation.x = -0.12;
-
-  // ---- barrel + muzzle device -----------------------------------------
-  const barrel = part(CYL, metal, 0.02, 0.28, 0.02, 0, 0.012, -0.52);
-  barrel.rotation.x = Math.PI / 2;
-
-  const brake = part(CYL, accent, 0.032, 0.07, 0.032, 0, 0.012, -0.66);
-  brake.rotation.x = Math.PI / 2;
-
-  // ---- optic -----------------------------------------------------------
-  const sightBase = part(BOX, metal, 0.036, 0.03, 0.1, 0, 0.078, -0.16);
-  const sight = part(BOX, accent, 0.042, 0.05, 0.055, 0, 0.104, -0.16);
-  // Glowing dot in the optic — reads instantly in the dark.
-  const dot = part(SPH, new THREE.MeshBasicMaterial({ color: 0xff3b3b }), 0.008, 0.008, 0.008, 0, 0.104, -0.19);
-
-  // ---- hands -----------------------------------------------------------
-  const rightGlove = part(SPH, gloveMat, 0.055, 0.05, 0.065, 0.02, -0.1, 0.04);
-  const rightArm = part(CYL, skinMat, 0.032, 0.22, 0.032, 0.05, -0.16, 0.16);
-  rightArm.rotation.set(1.25, 0, 0.35);
-
-  const leftGlove = part(SPH, gloveMat, 0.055, 0.05, 0.065, -0.02, -0.035, -0.4);
-  const leftArm = part(CYL, skinMat, 0.032, 0.3, 0.032, -0.09, -0.13, -0.22);
-  leftArm.rotation.set(1.35, 0, -0.5);
-
-  // ---- muzzle flash ----------------------------------------------------
-  const muzzle = new THREE.Mesh(SPH, MAT.flash);
-  muzzle.scale.setScalar(0.1);
-  muzzle.position.set(0, 0.012, -0.72);
-  muzzle.visible = false;
-  gunRoot.add(muzzle);
-
-  // A second, wider card behind the flash sells the bloom.
-  const flashCard = new THREE.Mesh(
-    new THREE.PlaneGeometry(0.26, 0.26),
-    new THREE.MeshBasicMaterial({
-      color: 0xffd27a, transparent: true, opacity: 0.85,
-      blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
-    }),
-  );
-  flashCard.position.set(0, 0.012, -0.7);
-  flashCard.visible = false;
-  gunRoot.add(flashCard);
-
-  root.position.set(0.26, -0.24, -0.52);
-  root.rotation.set(0, 0.04, 0);
-  root.visible = false;
-  camera.add(root);
-
-  viewmodel = {
-    root, gunRoot, body, barrel, magazine, muzzle, flashCard, dot,
-    recoil: 0, kick: 0, muzzleTime: 0,
-  };
-  if (!scene.children.includes(camera)) scene.add(camera);
 }
 
 /* ------------------------------------------------------------------ tracer */
@@ -2616,48 +2852,7 @@ function updateCamera(dt, instant) {
   camera.rotation.set(viewPitch, yaw, shake * 0.03 * (Math.random() - 0.5), 'YXZ');
 
 
-  // Viewmodel follows the camera, hides while dead or spectating.
-  if (viewmodel) {
-    viewmodel.root.visible = running && target.isPlayer && target.alive;
-    const weapon = WEAPONS[target.weapon] || WEAPONS.rifle;
-
-    // Silhouette per weapon: the shotgun is stubby and thick, the SMG compact
-    // with a long magazine, the rifle long. Swapping is instantly readable.
-    const shape = weapon.id === 'shotgun'
-      ? { bodyZ: 0.4, barrelZ: 0.22, magY: -0.09, magZ: -0.16, scale: 1.08 }
-      : weapon.id === 'smg'
-        ? { bodyZ: 0.34, barrelZ: 0.24, magY: -0.14, magZ: -0.14, scale: 0.94 }
-        : { bodyZ: 0.46, barrelZ: 0.28, magY: -0.115, magZ: -0.2, scale: 1 };
-    viewmodel.body.scale.z = shape.bodyZ;
-    viewmodel.barrel.scale.y = shape.barrelZ;
-    viewmodel.magazine.position.y = shape.magY;
-    viewmodel.magazine.position.z = shape.magZ;
-    viewmodel.gunRoot.scale.setScalar(shape.scale);
-
-    // Sprint / walk bob plus a touch of sway when idle.
-    const bobY = target.sprinting ? Math.sin(state.time * 16) * 0.018 : Math.sin(state.time * 7) * 0.005;
-    const bobX = target.sprinting ? Math.cos(state.time * 8) * 0.012 : Math.sin(state.time * 3.5) * 0.003;
-
-    viewmodel.root.position.set(0.26 + bobX, -0.24 + bobY, -0.52 + viewmodel.kick);
-    viewmodel.root.rotation.x = viewmodel.recoil * 0.7;
-    viewmodel.root.rotation.z = bobX * 0.6 + viewmodel.recoil * 0.12;
-
-    viewmodel.recoil *= Math.pow(0.02, dt);
-    viewmodel.kick *= Math.pow(0.0008, dt);
-
-    const flashOn = viewmodel.muzzleTime > 0;
-    viewmodel.muzzle.visible = flashOn;
-    if (viewmodel.flashCard) {
-      viewmodel.flashCard.visible = flashOn;
-      if (flashOn) {
-        const f = 0.7 + Math.random() * 0.6;
-        viewmodel.flashCard.scale.setScalar(f);
-        viewmodel.flashCard.rotation.z += 0.7;
-        viewmodel.flashCard.material.opacity = 0.6 + Math.random() * 0.35;
-      }
-    }
-    viewmodel.muzzleTime = Math.max(0, (viewmodel.muzzleTime || 0) - dt);
-  }
+  // No first-person viewmodel: the body carries the only weapon.
 }
 
 /* ------------------------------------------------------------------ loop */
@@ -2670,14 +2865,11 @@ function syncViews(dt) {
     view.root.position.set(actor.x, actor.y, actor.z);
     view.root.rotation.y = actor.yaw;
 
-    // The local player's BODY is always drawn -- the camera is third person.
-    // Only the rifle in that body's hands is hidden during play: it sat at the
-    // right edge of the screen next to the real first-person viewmodel and read
-    // as a stray second gun. Body, head, arms and the walk cycle are untouched;
-    // the rifle comes back when spectating or on the death cam, where the
-    // camera is looking AT the body instead of through it.
+    // The body carries its rifle at all times. The camera is third person, so
+    // the body IS the player: hiding its weapon and drawing a separate
+    // first-person gun floating at the right edge is what read as "extra gun".
     if (actor.isPlayer) {
-      view.gunPivot.visible = !running || state.player.spectating != null;
+      view.gunPivot.visible = actor.alive;
     }
 
     // Walk cycle: hips swing, knees bend on the back stroke, arms counter-swing.
@@ -2699,7 +2891,7 @@ function syncViews(dt) {
       view.armL.rotation.x = -swing * 0.75;
       // Only hold the rifle-ready pose while the body actually has a rifle in
       // hand; otherwise the arm swings freely like the left one.
-      view.armR.rotation.x = view.gunPivot.visible ? swing * 0.35 - 0.42 : -swing * 0.75;
+      view.armR.rotation.x = swing * 0.35 - 0.42;   // right arm holds the rifle up
 
       // A little vertical bob and torso counter-rotation sell the weight.
       view.root.position.y += Math.abs(Math.sin(phase)) * (actor.sprinting ? 0.05 : 0.022);
@@ -2777,7 +2969,6 @@ function handleEvents(events) {
       }
 
       muzzleFlashFor(shooterId);
-      if (viewmodel) viewmodel.muzzleTime = 0.045;
 
       // Gunfire, panned and attenuated per shooter.
       if (fromBot) {
@@ -2796,10 +2987,6 @@ function handleEvents(events) {
         const weapon = WEAPONS[ev.weapon] || WEAPONS.rifle;
         pitchKick = Math.min(0.14, pitchKick + (ev.recoil || 0.01) * 1.9);
         shake = Math.min(1.2, shake + (weapon.id === 'shotgun' ? 0.34 : 0.09));
-        if (viewmodel) {
-          viewmodel.recoil += weapon.id === 'shotgun' ? 0.5 : 0.16;
-          viewmodel.kick += weapon.id === 'shotgun' ? 0.075 : 0.028;
-        }
 
         const hit = ev.shots.find((s) => s.victimId != null);
         if (hit) {
@@ -2837,11 +3024,59 @@ function handleEvents(events) {
   }
 }
 
+/**
+ * Dynamic resolution.
+ *
+ * Frame time is measured over a rolling window. If the device sustains worse
+ * than ~24 ms (below ~42 fps) for long enough, the render resolution steps down;
+ * if it is comfortably fast for a while, it steps back up. This is what keeps a
+ * mid-range phone from feeling like it is dragging without hard-coding a guess
+ * about which phone it is.
+ */
+const perf = {
+  base: renderer.getPixelRatio(),
+  scale: 1,
+  acc: 0,
+  frames: 0,
+  cooldown: 0,
+};
+
+function updateDynamicResolution(dt) {
+  if (LOW_END) return;             // already at 1x on the weakest tier
+  perf.acc += dt;
+  perf.frames++;
+  perf.cooldown -= dt;
+
+  if (perf.acc < 1) return;
+  const avg = perf.acc / perf.frames;
+  perf.acc = 0;
+  perf.frames = 0;
+
+  if (perf.cooldown > 0) return;
+
+  const minScale = 0.6;
+  let next = perf.scale;
+
+  if (avg > 0.024 && perf.scale > minScale) {
+    next = Math.max(minScale, perf.scale - 0.15);
+  } else if (avg < 0.0145 && perf.scale < 1) {
+    next = Math.min(1, perf.scale + 0.1);
+  }
+
+  if (next !== perf.scale) {
+    perf.scale = next;
+    renderer.setPixelRatio(perf.base * perf.scale);
+    perf.cooldown = 2.5;           // do not thrash every second
+  }
+}
+
 function frame(now) {
   requestAnimationFrame(frame);
 
   const dt = Math.min(0.05, (now - lastFrame) / 1000);
   lastFrame = now;
+
+  updateDynamicResolution(dt);
 
   updateTracers(dt);
   updateImpacts(dt);
@@ -2909,16 +3144,26 @@ updateSky(0);
 
 /* ---------------------------------------------------------------- compose */
 
+/**
+ * Bloom is the most expensive thing in the frame: an UnrealBloomPass renders the
+ * scene into a half-float target and then runs five separate blur mips over it.
+ * On low-end hardware it is skipped entirely and the two cheap passes are used
+ * instead, so the frame is one scene render rather than a chain.
+ */
+const USE_BLOOM = !LOW_END;
+
 const composer = new EffectComposer(renderer);
 composer.addPass(new RenderPass(scene, camera));
 
-bloom = new UnrealBloomPass(
-  new THREE.Vector2(innerWidth, innerHeight),
-  LOW_END ? 0.24 : 0.42,   // strength
-  0.72,                    // radius
-  0.86,                    // threshold
-);
-composer.addPass(bloom);
+if (USE_BLOOM) {
+  bloom = new UnrealBloomPass(
+    new THREE.Vector2(innerWidth, innerHeight),
+    MOBILE ? 0.30 : 0.42,   // strength
+    MOBILE ? 0.55 : 0.72,   // radius
+    0.86,                   // threshold
+  );
+  composer.addPass(bloom);
+}
 composer.addPass(new OutputPass());
 
 /* ------------------------------------------------------------------ errors */
@@ -3021,6 +3266,18 @@ window.__BR__ = {
   // Exposed so the headless boot test can assert on the local player's body and
   // body-rifle visibility -- the duplicate-gun regression must not come back.
   views: () => actorViews,
+  // Draw-call accounting: the static world must stay merged, otherwise the
+  // frame cost climbs back toward a thousand draw calls.
+  stats() {
+    let total = 0;
+    let staticBatches = 0;
+    worldGroup.traverse((n) => {
+      if (!n.isMesh) return;
+      total++;
+      if (n.userData.merged) staticBatches++;
+    });
+    return { worldMeshes: total, staticBatches };
+  },
   spectate: (dir = 1) => spectate(state, dir),
   advance(seconds, dt = 1 / 60) {
     if (!state) return null;

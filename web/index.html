@@ -276,53 +276,68 @@
   #lookZone { position: absolute; right: 0; top: 0; width: 50%; height: 100%; }
 
   /* ------------------------------------------------------- touch buttons
-     Round glass buttons with inline SVG glyphs. Each button carries its own
-     --accent so the icon, rim and glow all follow one colour. The old version
-     was a text label on a flat translucent circle: FIRE / RELOAD / HEAL all
-     read the same at arm's length on a phone. Icons are recognisable in a
-     glance, and the label underneath still spells it out. */
+     Free Fire style: small, sharp-edged glass tiles with a crisp SVG glyph,
+     spaced out around the right thumb instead of a jumble of big pale circles.
+     Each button owns one accent colour so the hand learns the layout without
+     reading anything. Tap target stays >= 52px, comfortably above the 44px
+     minimum, and the whole cluster sits inside the right thumb arc. */
   .btn {
-    position: absolute; display: flex; flex-direction: column;
-    align-items: center; justify-content: center; gap: 2px;
-    border-radius: 50%; pointer-events: auto; text-align: center;
-    color: #fff; font-weight: 900; letter-spacing: .07em;
-    --accent: rgba(255,255,255,.34);
-    border: 2px solid var(--accent);
-    background: radial-gradient(circle at 50% 32%, rgba(255,255,255,.20), rgba(255,255,255,.06) 62%, rgba(0,0,0,.20));
-    backdrop-filter: blur(7px);
-    -webkit-backdrop-filter: blur(7px);
-    box-shadow: 0 4px 16px rgba(0,0,0,.34), inset 0 1px 0 rgba(255,255,255,.20);
-    transition: transform .07s ease, background .10s ease, box-shadow .10s ease;
+    position: absolute; display: flex; align-items: center; justify-content: center;
+    border-radius: 14px; pointer-events: auto; color: #fff;
+    --accent: #ffffff;
+    background:
+      linear-gradient(160deg, rgba(255,255,255,.16), rgba(255,255,255,.03) 55%, rgba(0,0,0,.28));
+    border: 1.5px solid rgba(255,255,255,.30);
+    box-shadow:
+      inset 0 1px 0 rgba(255,255,255,.30),
+      inset 0 -2px 0 rgba(0,0,0,.28),
+      0 3px 10px rgba(0,0,0,.38);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    transition: transform .06s ease, box-shadow .10s ease, background .10s ease;
     -webkit-tap-highlight-color: transparent;
-    user-select: none;
+    user-select: none; touch-action: none;
+  }
+  /* The accent bar down the left edge: the fastest possible read of which
+     button is which, even in peripheral vision. */
+  .btn::before {
+    content: ""; position: absolute; left: 0; top: 22%; bottom: 22%; width: 3px;
+    border-radius: 0 3px 3px 0; background: var(--accent); opacity: .95;
+    box-shadow: 0 0 8px var(--accent);
   }
   .btn svg {
     width: 55%; height: 55%; display: block;
-    filter: drop-shadow(0 1px 2px rgba(0,0,0,.55));
+    filter: drop-shadow(0 1px 2px rgba(0,0,0,.7));
     pointer-events: none;
   }
   .btn .lbl {
-    font-size: 8.5px; line-height: 1; opacity: .78;
-    text-shadow: 0 1px 2px rgba(0,0,0,.75); pointer-events: none;
+    display: none;   /* icons only, like the real thing */
   }
-  .btn:active, .btn.down {
-    transform: scale(.93);
-    background: radial-gradient(circle at 50% 40%, rgba(255,255,255,.42), rgba(255,255,255,.20));
-    box-shadow: 0 0 0 3px rgba(255,255,255,.10), 0 0 22px var(--accent);
+  .btn.down, .btn:active {
+    transform: scale(.90);
+    background: linear-gradient(160deg, rgba(255,255,255,.34), rgba(255,255,255,.10));
+    box-shadow:
+      inset 0 0 14px var(--accent),
+      0 0 16px rgba(255,255,255,.18),
+      0 1px 4px rgba(0,0,0,.4);
   }
 
+  /* Right-thumb cluster. Fire is the anchor at the bottom right; the rest ring
+     it at a comfortable arc. */
   #btnFire {
-    right: 20px; bottom: 24px; width: 92px; height: 92px;
-    --accent: rgba(255,90,90,.78);
-    background: radial-gradient(circle at 50% 32%, rgba(255,110,110,.38), rgba(255,40,40,.14) 64%, rgba(0,0,0,.24));
+    right: 18px; bottom: 20px; width: 86px; height: 86px; border-radius: 20px;
+    --accent: #ff3b46;
+    background: linear-gradient(160deg, rgba(255,80,90,.34), rgba(150,15,25,.30) 60%, rgba(0,0,0,.32));
+    border-color: rgba(255,110,118,.55);
   }
-  #btnFire svg { width: 46%; height: 46%; }
-  #btnReload { right: 124px; bottom: 92px; width: 62px; height: 62px; --accent: rgba(120,200,255,.62); }
-  #btnHeal { right: 20px; bottom: 128px; width: 62px; height: 62px; --accent: rgba(80,255,140,.70); }
-  #btnJump { right: 124px; bottom: 22px; width: 58px; height: 58px; --accent: rgba(255,255,255,.42); }
-  #btnGrenade { right: 88px; bottom: 172px; width: 58px; height: 58px; --accent: rgba(190,255,90,.66); }
-  #btnSwap { right: 200px; bottom: 40px; width: 52px; height: 52px; --accent: rgba(255,205,110,.60); }
-  #btnSwap .lbl, #btnGrenade .lbl, #btnJump .lbl { display: none; }
+  #btnFire svg { width: 50%; height: 50%; }
+  #btnFire::before { top: 16%; bottom: 16%; width: 4px; }
+
+  #btnReload  { right: 116px; bottom: 86px; width: 56px; height: 56px; --accent: #4cc9ff; }
+  #btnHeal    { right: 18px;  bottom: 118px; width: 56px; height: 56px; --accent: #35e07a; }
+  #btnJump    { right: 118px; bottom: 18px;  width: 54px; height: 54px; --accent: #e8f2ff; }
+  #btnGrenade { right: 84px;  bottom: 158px; width: 50px; height: 50px; --accent: #b7f43a; }
+  #btnSwap    { right: 182px; bottom: 46px;  width: 50px; height: 50px; --accent: #ffc247; }
 
   #hint { position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%); font-size: 10.5px; opacity: .38; letter-spacing: .1em; white-space: nowrap; }
 
@@ -446,14 +461,12 @@
     <div class="sub">16 fighters · 3 weapons · grenades · armour · shrinking zone</div>
 
     <div class="keys">
-      <div><span>Move</span><b>W A S D</b></div>
-      <div><span>Sprint / Crouch</span><b>SHIFT / C</b></div>
-      <div><span>Look</span><b>RIGHT MOUSE</b></div>
-      <div><span>Fire</span><b>LEFT CLICK</b></div>
-      <div><span>Grenade</span><b>G</b></div>
-      <div><span>Swap weapon</span><b>1 2 3 / Q</b></div>
-      <div><span>Reload / Heal</span><b>R / H</b></div>
-      <div><span>Jump / Spectate</span><b>SPACE / E</b></div>
+      <div><span>Move</span><b>LEFT THUMB</b></div>
+      <div><span>Look / Aim</span><b>RIGHT THUMB</b></div>
+      <div><span>Fire</span><b>RED BUTTON</b></div>
+      <div><span>Reload / Heal</span><b>BLUE / GREEN</b></div>
+      <div><span>Grenade / Swap</span><b>LIME / AMBER</b></div>
+      <div><span>Crouch</span><b>HOLD STICK IN</b></div>
     </div>
 
     <button id="btnStart">
@@ -465,7 +478,7 @@
       <span>DEPLOY</span>
     </button>
     <div style="font-size:10.5px;opacity:.42;margin-top:12px;text-align:center;letter-spacing:.07em">
-      Phone? Touch controls appear automatically.
+      Built for phones — left thumb moves, right thumb aims.
     </div>
   </div>
 
