@@ -1,0 +1,16 @@
+{
+  "name": "ankit-battle-royale",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Single-page battle royale shooter: three.js renderer, framework-free game logic, no build step.",
+  "scripts": {
+    "start": "node serve.mjs 8080",
+    "serve": "node serve.mjs 8080",
+    "test": "node --test tests/logic.test.mjs",
+    "test:headless": "node --loader ./tests/headless/loader.mjs ./tests/headless/boot.test.mjs",
+    "test:all": "npm test && npm run test:headless"
+  },
+  "keywords": ["battle-royale", "threejs", "webgl", "game", "no-build"],
+  "license": "MIT"
+}
