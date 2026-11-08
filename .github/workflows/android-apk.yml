@@ -75,8 +75,44 @@ jobs:
           distribution: temurin
           java-version: '21'
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+      # ubuntu-latest ships with the Android SDK, build-tools and platform 34
+      # already installed. Using them directly avoids a third-party action that
+      # needs to download additional packages (which fails on restricted egress).
+      - name: Locate the preinstalled Android SDK
+        run: |
+          set -e
+          for candidate in \
+            "$ANDROID_HOME" \
+            "$ANDROID_SDK_ROOT" \
+            /usr/local/lib/android/sdk; do
+            if [ -n "$candidate" ] && [ -d "$candidate" ]; then
+              echo "ANDROID_HOME=$candidate" >> "$GITHUB_ENV"
+              echo "ANDROID_SDK_ROOT=$candidate" >> "$GITHUB_ENV"
+              echo "Using SDK at $candidate"
+              ls "$candidate"
+              break
+            fi
+          done
+
+      - name: Verify SDK components and accept licences
+        run: |
+          set -e
+          SDK="$ANDROID_HOME"
+          echo "ANDROID_HOME=$SDK"
+          ls "$SDK/platforms" || true
+          ls "$SDK/build-tools" || true
+
+          # The AGP build needs platform 34 and build-tools 34.x; both are in
+          # the runner image. Only install if a component is genuinely missing.
+          if [ ! -d "$SDK/platforms/android-34" ]; then
+            yes | "$SDK/cmdline-tools/latest/bin/sdkmanager" "platforms;android-34" || true
+          fi
+          if ! ls "$SDK/build-tools" | grep -q '^34'; then
+            yes | "$SDK/cmdline-tools/latest/bin/sdkmanager" "build-tools;34.0.0" || true
+          fi
+
+          echo "licences:"
+          yes | "$SDK/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null 2>&1 || true
 
       - name: Install npm deps
         run: npm ci --no-audit --no-fund || npm install --no-audit --no-fund
