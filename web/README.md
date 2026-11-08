@@ -1,4 +1,4 @@
-# BATTLE ROYALE v2.1 — playable in the browser **and** on Android
+# BATTLE ROYALE v2.1.1 — playable in the browser **and** on Android
 
 A complete 16-fighter battle royale: three weapons, grenades, armour, four bot skill
 tiers, a shrinking safe zone and a kill feed. Runs in any modern browser with no build
@@ -10,7 +10,7 @@ per-weapon viewmodels, a synthesised audio engine and a decorated map.
 
 ```
 Play in a browser  →  node web/serve.mjs 8080      then open localhost:8080
-Install on Android →  Releases → v2.1.0 → battle-royale-debug.apk
+Install on Android →  Releases → v2.1.1 → battle-royale-debug.apk
 ```
 
 ---

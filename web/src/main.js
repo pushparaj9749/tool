@@ -2211,18 +2211,16 @@ function frame(now) {
       input.crouch = keys.has('ControlLeft') || keys.has('KeyC');
 
       // Free-Fire-style default aim: pull the view onto the nearest enemy
-      // inside the cone, then let the regular shot code fire.
-      if (!isTouch || input.firing || input.aiming) {
-        const assisted = applyAimAssist(state, yaw, pitch, dt);
-        if (assisted.target && assisted.target.actorId !== assistTarget?.actorId) {
-          assistFlash = 1;
-        }
-        yaw = assisted.yaw;
-        pitch = assisted.pitch;
-        assistTarget = assisted.target;
-      } else {
-        assistTarget = null;
+      // inside the cone, then let the regular shot code fire. This runs on
+      // every device, every frame — `input.aiming` never existed and gating on
+      // it silently disabled the assist on touch screens.
+      const assisted = applyAimAssist(state, yaw, pitch, dt);
+      if (assisted.target && assisted.target.actorId !== assistTarget?.actorId) {
+        assistFlash = 1;
       }
+      yaw = assisted.yaw;
+      pitch = assisted.pitch;
+      assistTarget = assisted.target;
 
       const events = step(state, input, { yaw, pitch }, dt);
       handleEvents(events);
