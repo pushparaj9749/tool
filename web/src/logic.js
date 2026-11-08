@@ -308,45 +308,129 @@ export function segmentHitsBox(ax, az, bx, bz, cx, cz, hx, hz) {
 
 /* ----------------------------------------------------------------- world */
 
+/**
+ * Map generator.
+ *
+ * The previous version laid a flat 5x5 grid of boxes over the map and dropped
+ * 22 crates around the middle: one obstacle per ~557 m², which reads as an empty
+ * field. This builds a real battle royale map instead:
+ *
+ *   - three named POIs with clustered, varied buildings and lanes between them
+ *   - low cover (crates, sandbags) placed in a ring so every POI has an approach
+ *   - walls and fences that break long sight lines across the open middle
+ *   - raised platforms that give high ground without needing a heightmap
+ *
+ * Everything stays axis-aligned boxes so the existing collision, hitscan and
+ * bot steering keep working untouched.
+ */
 export function generateWorld(cfg = CONFIG, rng = makeRng(1)) {
   const buildings = [];
   const windows = [];
+  const obstacles = [];
 
-  for (let x = -2; x <= 2; x++) {
-    for (let z = -2; z <= 2; z++) {
-      if (x === 0 && z === 0) continue;
-      if (rng() < 0.17) continue;
+  const half = cfg.mapSize / 2 - 12;
 
-      const px = x * 25 + rngRange(rng, -3, 3);
-      const pz = z * 25 + rngRange(rng, -3, 3);
-      const width = rngRange(rng, 7, 12);
-      const depth = rngRange(rng, 7, 12);
-      const height = rngRange(rng, 4, 9);
+  const addBox = (kind, x, z, hx, hz, height, extra = {}) => {
+    obstacles.push({ kind, x, z, hx, hz, height, ...extra });
+  };
 
-      buildings.push({ kind: 'building', x: px, z: pz, hx: width / 2, hz: depth / 2, height, width, depth });
+  // ---- named POIs -------------------------------------------------------
+  // Each POI is a cluster of 4-6 buildings with a small plaza between them.
+  const POIS = [
+    { name: 'Foundry', x: -34, z: -30, n: 6, spread: 20, height: [6, 11] },
+    { name: 'Depot', x: 30, z: -14, n: 5, spread: 18, height: [4, 7] },
+    { name: 'Terrace', x: -8, z: 34, n: 5, spread: 18, height: [5, 9] },
+    { name: 'Outpost', x: 38, z: 34, n: 4, spread: 14, height: [3.5, 6] },
+  ];
 
+  for (const poi of POIS) {
+    for (let i = 0; i < poi.n; i++) {
+      const a = (i / poi.n) * Math.PI * 2 + rng() * 0.5;
+      const r = poi.spread * (0.45 + rng() * 0.55);
+      const px = poi.x + Math.cos(a) * r;
+      const pz = poi.z + Math.sin(a) * r;
+
+      if (Math.abs(px) > half || Math.abs(pz) > half) continue;
+      if (Math.hypot(px - cfg.spawn.x, pz - cfg.spawn.z) < 6) continue;
+
+      const width = rngRange(rng, 6, 12);
+      const depth = rngRange(rng, 6, 12);
+      const height = rngRange(rng, poi.height[0], poi.height[1]);
+
+      buildings.push({ kind: 'building', x: px, z: pz, hx: width / 2, hz: depth / 2, height, width, depth, poi: poi.name });
+      addBox('building', px, pz, width / 2, depth / 2, height);
+
+      // Windows on every face, not just one.
       for (let w = -1; w <= 1; w++) {
-        windows.push({ x: px + w * 2, y: 2.8, z: pz - depth / 2 - 0.03, w: 1.1, h: 1.2 });
+        windows.push({ x: px + w * (width / 3.4), y: 2.6, z: pz - depth / 2 - 0.03, w: 1.0, h: 1.1 });
+        windows.push({ x: px + w * (width / 3.4), y: 2.6, z: pz + depth / 2 + 0.03, w: 1.0, h: 1.1 });
       }
+
+      // A cluster of low cover around each building.
+      const coverCount = 2 + ((rng() * 3) | 0);
+      for (let c = 0; c < coverCount; c++) {
+        const ca = rng() * Math.PI * 2;
+        const cr = Math.max(width, depth) * 0.5 + rngRange(rng, 1.5, 5);
+        const cx = px + Math.cos(ca) * cr;
+        const cz = pz + Math.sin(ca) * cr;
+        if (Math.abs(cx) > half || Math.abs(cz) > half) continue;
+        const size = rngRange(rng, 1.4, 2.8);
+        addBox(rng() < 0.45 ? 'sandbag' : 'cover', cx, cz, size / 2, size / 2, 1.2);
+      }
+    }
+
+    // A raised terrace inside the POI: high ground you have to walk to.
+    const tx = poi.x + rngRange(rng, -6, 6);
+    const tz = poi.z + rngRange(rng, -6, 6);
+    if (Math.abs(tx) < half && Math.abs(tz) < half) {
+      const tw = rngRange(rng, 5, 9);
+      const td = rngRange(rng, 5, 9);
+      addBox('platform', tx, tz, tw / 2, td / 2, rngRange(rng, 1.4, 2.4));
     }
   }
 
-  const obstacles = buildings.map((b) => ({
-    kind: b.kind, x: b.x, z: b.z, hx: b.hx, hz: b.hz, height: b.height,
-  }));
+  // ---- connecting walls: break the long sight lines across the middle ----
+  for (let i = 0; i < 14; i++) {
+    const long = rng() < 0.5;
+    const len = rngRange(rng, 6, 16);
+    const px = rngRange(rng, -half * 0.8, half * 0.8);
+    const pz = rngRange(rng, -half * 0.8, half * 0.8);
+    if (Math.hypot(px - cfg.spawn.x, pz - cfg.spawn.z) < 8) continue;
 
-  for (let i = 0; i < 22; i++) {
-    const angle = rng() * Math.PI * 2;
-    const radius = Math.sqrt(rng()) * cfg.mapSize * 0.4;
-    const px = Math.cos(angle) * radius;
-    const pz = Math.sin(angle) * radius;
-    if (Math.hypot(px - cfg.spawn.x, pz - cfg.spawn.z) < 5) continue;
-
-    const size = rngRange(rng, 1.5, 3);
-    obstacles.push({ kind: 'cover', x: px, z: pz, hx: size / 2, hz: size / 2, height: 1.3 });
+    addBox('wall', px, pz, long ? len / 2 : 0.35, long ? 0.35 : len / 2, rngRange(rng, 2.4, 3.6));
   }
 
-  return { buildings, windows, obstacles, mapSize: cfg.mapSize };
+  // ---- scattered field cover -------------------------------------------
+  let placed = 0;
+  for (let i = 0; i < 700 && placed < 90; i++) {
+    const radius = Math.sqrt(rng()) * half;
+    const angle = rng() * Math.PI * 2;
+    const px = Math.cos(angle) * radius;
+    const pz = Math.sin(angle) * radius;
+
+    if (Math.hypot(px - cfg.spawn.x, pz - cfg.spawn.z) < 5) continue;
+
+    // Keep a little breathing room so nothing overlaps.
+    let tooClose = false;
+    for (const o of obstacles) {
+      if (Math.abs(px - o.x) < o.hx + 1.6 && Math.abs(pz - o.z) < o.hz + 1.6) { tooClose = true; break; }
+    }
+    if (tooClose) continue;
+
+    const roll = rng();
+    if (roll < 0.55) {
+      const size = rngRange(rng, 1.3, 2.6);
+      addBox(rng() < 0.4 ? 'sandbag' : 'cover', px, pz, size / 2, size / 2, rngRange(rng, 1.0, 1.5));
+    } else if (roll < 0.85) {
+      addBox('rock', px, pz, rngRange(rng, 0.9, 1.9), rngRange(rng, 0.9, 1.9), rngRange(rng, 1.1, 2.0));
+    } else {
+      const len = rngRange(rng, 3, 7);
+      addBox('wall', px, pz, rng() < 0.5 ? len / 2 : 0.3, rng() < 0.5 ? 0.3 : len / 2, rngRange(rng, 1.8, 2.8));
+    }
+    placed++;
+  }
+
+  return { buildings, windows, obstacles, mapSize: cfg.mapSize, pois: POIS.map((p) => p.name) };
 }
 
 export function positionClear(world, x, z, radius, actors, margin = 2) {

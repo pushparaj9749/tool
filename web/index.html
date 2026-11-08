@@ -91,24 +91,49 @@
   #zoneWarning.on { opacity: 1; }
   @keyframes pulse { 0%,100% { opacity: .4 } 50% { opacity: 1 } }
 
-  #crosshair { position: absolute; left: 50%; top: 50%; width: 22px; height: 22px; transform: translate(-50%,-50%); }
-  #crosshair::before, #crosshair::after {
-    content: ""; position: absolute; background: rgba(255,255,255,.85);
-    box-shadow: 0 0 4px rgba(0,0,0,.95);
+  /* ---- crosshair: Free-Fire-style 4 ticks + centre dot ---------------
+   * The old one was a 22 px full cross, which read as a huge plus sign over
+   * the target. This is four short ticks around a 2 px dot: small enough to
+   * sit on a head at 40 m, with a dark rim so it survives a bright sky.
+   */
+  #crosshair {
+    position: absolute; left: 50%; top: 50%; width: 26px; height: 26px;
+    transform: translate(-50%,-50%); pointer-events: none;
   }
-  #crosshair::before { left: 50%; top: 0; width: 1.5px; height: 100%; transform: translateX(-50%); }
-  #crosshair::after { top: 50%; left: 0; height: 1.5px; width: 100%; transform: translateY(-50%); }
+  #crosshair i {
+    position: absolute; display: block; background: #f2fbff;
+    box-shadow: 0 0 0 1px rgba(0,0,0,.55), 0 0 3px rgba(0,0,0,.8);
+    border-radius: 1px;
+  }
+  #crosshair .t, #crosshair .b { left: 50%; width: 1.5px; height: 6px; margin-left: -.75px; }
+  #crosshair .l, #crosshair .r { top: 50%; height: 1.5px; width: 6px; margin-top: -.75px; }
+  #crosshair .t { top: 0; }
+  #crosshair .b { bottom: 0; }
+  #crosshair .l { left: 0; }
+  #crosshair .r { right: 0; }
+  /* Centre dot: the actual aim point. */
+  #crosshair .d {
+    left: 50%; top: 50%; width: 2.5px; height: 2.5px; margin: -1.25px 0 0 -1.25px;
+    border-radius: 50%; background: #ff3b4a;
+    box-shadow: 0 0 0 1px rgba(0,0,0,.5), 0 0 6px rgba(255,59,74,.85);
+  }
+  /* Firing spreads the ticks; sprinting narrows them. */
+  #crosshair.spread .t { transform: translateY(-3px); }
+  #crosshair.spread .b { transform: translateY(3px); }
+  #crosshair.spread .l { transform: translateX(-3px); }
+  #crosshair.spread .r { transform: translateX(3px); }
+  #crosshair { transition: opacity .12s linear; }
 
   /* ---- aim-assist lock-on -------------------------------------------- */
   #lockRing {
-    position: absolute; left: 0; top: 0; width: 64px; height: 64px; opacity: 0;
-    border: 2px solid #ff4d5e; border-radius: 50%;
+    position: absolute; left: 0; top: 0; width: 40px; height: 40px; opacity: 0;
+    border: 1.5px solid #ff4d5e; border-radius: 50%;
     transform-origin: 50% 50%; pointer-events: none; will-change: transform, opacity;
     transition: opacity .09s linear, border-color .09s linear;
     animation: lockPulse 1.15s ease-in-out infinite;
   }
   #lockRing::before, #lockRing::after {
-    content: ""; position: absolute; left: 50%; top: 50%; width: 7px; height: 2px;
+    content: ""; position: absolute; left: 50%; top: 50%; width: 5px; height: 1.5px;
     background: currentColor; color: inherit; border-radius: 1px;
   }
   #lockRing::before { transform: translate(-50%, -50%) rotate(45deg); background: #ff4d5e; }
@@ -205,15 +230,27 @@
   .stat .l { font-size: 9px; letter-spacing: .17em; opacity: .55; margin-top: 3px; }
 
   button {
-    width: 100%; padding: 15px; margin-top: 6px;
+    position: relative; overflow: hidden;
+    width: 100%; padding: 16px 18px; margin-top: 8px;
+    display: flex; align-items: center; justify-content: center; gap: 11px;
     font: inherit; font-size: 15px; font-weight: 900; letter-spacing: .18em;
-    color: #04121b; background: linear-gradient(180deg,#6ee6ff,#20b4e2);
-    border: 0; border-radius: 12px; cursor: pointer;
-    box-shadow: 0 8px 26px rgba(40,180,230,.38);
-    transition: transform .08s, filter .12s;
+    color: #04121b; background: linear-gradient(180deg,#7ceaff,#1fa9d8);
+    border: 0; border-radius: 13px; cursor: pointer;
+    box-shadow: 0 8px 26px rgba(40,180,230,.38), inset 0 1px 0 rgba(255,255,255,.55);
+    transition: transform .08s, filter .12s, box-shadow .12s;
   }
-  button:hover { filter: brightness(1.09); }
+  /* A thin highlight sweeps across on hover: the button should feel machined
+     rather than a flat coloured rectangle. */
+  button::after {
+    content: ""; position: absolute; inset: 0 auto 0 -60%; width: 45%;
+    background: linear-gradient(100deg, transparent, rgba(255,255,255,.55), transparent);
+    transform: skewX(-18deg); transition: left .45s ease; pointer-events: none;
+  }
+  button:hover::after { left: 115%; }
+  button:hover { filter: brightness(1.06); box-shadow: 0 10px 30px rgba(40,180,230,.5), inset 0 1px 0 rgba(255,255,255,.6); }
   button:active { transform: translateY(1px) scale(.995); }
+  button:focus-visible { outline: 2px solid #9df3ff; outline-offset: 3px; }
+  button svg { width: 21px; height: 21px; flex: 0 0 auto; }
 
   #resultTitle { font-size: 38px; font-weight: 900; letter-spacing: .05em; margin: 8px 0 2px; }
   #resultTitle.win { color: var(--ok); text-shadow: 0 0 34px rgba(77,255,135,.45); }
@@ -238,19 +275,54 @@
 
   #lookZone { position: absolute; right: 0; top: 0; width: 50%; height: 100%; }
 
+  /* ------------------------------------------------------- touch buttons
+     Round glass buttons with inline SVG glyphs. Each button carries its own
+     --accent so the icon, rim and glow all follow one colour. The old version
+     was a text label on a flat translucent circle: FIRE / RELOAD / HEAL all
+     read the same at arm's length on a phone. Icons are recognisable in a
+     glance, and the label underneath still spells it out. */
   .btn {
-    position: absolute; display: flex; align-items: center; justify-content: center;
-    border-radius: 50%; border: 2px solid rgba(255,255,255,.26);
-    background: rgba(255,255,255,.12); font-weight: 900; letter-spacing: .04em;
-    font-size: 11px; color: #fff; pointer-events: auto; text-align: center;
+    position: absolute; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 2px;
+    border-radius: 50%; pointer-events: auto; text-align: center;
+    color: #fff; font-weight: 900; letter-spacing: .07em;
+    --accent: rgba(255,255,255,.34);
+    border: 2px solid var(--accent);
+    background: radial-gradient(circle at 50% 32%, rgba(255,255,255,.20), rgba(255,255,255,.06) 62%, rgba(0,0,0,.20));
+    backdrop-filter: blur(7px);
+    -webkit-backdrop-filter: blur(7px);
+    box-shadow: 0 4px 16px rgba(0,0,0,.34), inset 0 1px 0 rgba(255,255,255,.20);
+    transition: transform .07s ease, background .10s ease, box-shadow .10s ease;
+    -webkit-tap-highlight-color: transparent;
+    user-select: none;
   }
-  .btn:active, .btn.down { background: rgba(255,255,255,.32); }
-  #btnFire { right: 20px; bottom: 24px; width: 92px; height: 92px; font-size: 13px; border-color: rgba(255,110,110,.6); background: rgba(255,60,60,.22); }
-  #btnReload { right: 124px; bottom: 92px; width: 62px; height: 62px; }
-  #btnHeal { right: 20px; bottom: 128px; width: 62px; height: 62px; border-color: rgba(80,255,140,.45); }
-  #btnJump { right: 124px; bottom: 22px; width: 58px; height: 58px; }
-  #btnGrenade { right: 88px; bottom: 172px; width: 58px; height: 58px; border-color: rgba(180,255,80,.5); }
-  #btnSwap { right: 200px; bottom: 40px; width: 52px; height: 52px; font-size: 10px; }
+  .btn svg {
+    width: 55%; height: 55%; display: block;
+    filter: drop-shadow(0 1px 2px rgba(0,0,0,.55));
+    pointer-events: none;
+  }
+  .btn .lbl {
+    font-size: 8.5px; line-height: 1; opacity: .78;
+    text-shadow: 0 1px 2px rgba(0,0,0,.75); pointer-events: none;
+  }
+  .btn:active, .btn.down {
+    transform: scale(.93);
+    background: radial-gradient(circle at 50% 40%, rgba(255,255,255,.42), rgba(255,255,255,.20));
+    box-shadow: 0 0 0 3px rgba(255,255,255,.10), 0 0 22px var(--accent);
+  }
+
+  #btnFire {
+    right: 20px; bottom: 24px; width: 92px; height: 92px;
+    --accent: rgba(255,90,90,.78);
+    background: radial-gradient(circle at 50% 32%, rgba(255,110,110,.38), rgba(255,40,40,.14) 64%, rgba(0,0,0,.24));
+  }
+  #btnFire svg { width: 46%; height: 46%; }
+  #btnReload { right: 124px; bottom: 92px; width: 62px; height: 62px; --accent: rgba(120,200,255,.62); }
+  #btnHeal { right: 20px; bottom: 128px; width: 62px; height: 62px; --accent: rgba(80,255,140,.70); }
+  #btnJump { right: 124px; bottom: 22px; width: 58px; height: 58px; --accent: rgba(255,255,255,.42); }
+  #btnGrenade { right: 88px; bottom: 172px; width: 58px; height: 58px; --accent: rgba(190,255,90,.66); }
+  #btnSwap { right: 200px; bottom: 40px; width: 52px; height: 52px; --accent: rgba(255,205,110,.60); }
+  #btnSwap .lbl, #btnGrenade .lbl, #btnJump .lbl { display: none; }
 
   #hint { position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%); font-size: 10.5px; opacity: .38; letter-spacing: .1em; white-space: nowrap; }
 
@@ -292,7 +364,7 @@
     <div id="grenadeRow">GRENADE <b id="grenadeCount">2</b></div>
   </div>
 
-  <div id="crosshair"></div>
+  <div id="crosshair"><i class="t"></i><i class="b"></i><i class="l"></i><i class="r"></i><i class="d"></i></div>
   <div id="lockRing"></div>
   <div id="lockLabel"></div>
   <div id="hitmark"></div>
@@ -306,12 +378,65 @@
 <div id="touch">
   <div id="stickZone"><div id="stickBase"><div id="stickKnob"></div></div></div>
   <div id="lookZone"></div>
-  <div class="btn" id="btnFire">FIRE</div>
-  <div class="btn" id="btnReload">RELOAD</div>
-  <div class="btn" id="btnHeal">HEAL</div>
-  <div class="btn" id="btnJump">JUMP</div>
-  <div class="btn" id="btnGrenade">NADE</div>
-  <div class="btn" id="btnSwap">SWAP</div>
+  <!-- Fire: crosshair + bullet core, the one button that must never be missed. -->
+  <div class="btn" id="btnFire" role="button" aria-label="Fire">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"
+         stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="7.2" />
+      <circle cx="12" cy="12" r="2.1" fill="currentColor" stroke="none" />
+      <path d="M12 1.4v4.2M12 18.4v4.2M1.4 12h4.2M18.4 12h4.2" />
+    </svg>
+  </div>
+
+  <!-- Reload: circular arrow with the mag dropping in. -->
+  <div class="btn" id="btnReload" role="button" aria-label="Reload">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+         stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M20.4 12a8.4 8.4 0 1 1-2.6-6.05" />
+      <path d="M20.9 4.2v5.1h-5.1" />
+    </svg>
+    <span class="lbl">RELOAD</span>
+  </div>
+
+  <!-- Heal: medkit cross on a pack. -->
+  <div class="btn" id="btnHeal" role="button" aria-label="Heal">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+         stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <rect x="3.2" y="5.4" width="17.6" height="14" rx="3" />
+      <path d="M9 11.6h6M12 8.6v6" stroke-width="2.4" />
+    </svg>
+    <span class="lbl">HEAL</span>
+  </div>
+
+  <!-- Jump: chevrons up over a ground line. -->
+  <div class="btn" id="btnJump" role="button" aria-label="Jump">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1"
+         stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M6.4 11.6 12 6l5.6 5.6" />
+      <path d="M6.4 17 12 11.4 17.6 17" opacity=".55" />
+      <path d="M4.6 20.4h14.8" opacity=".45" />
+    </svg>
+  </div>
+
+  <!-- Grenade: body + lever + pin ring. -->
+  <div class="btn" id="btnGrenade" role="button" aria-label="Grenade">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"
+         stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <ellipse cx="12" cy="14.4" rx="5.6" ry="6.4" />
+      <path d="M9.4 8.2h5.2M12 8.2V5.6" />
+      <path d="M14.6 5.2c1.9.1 3.1 1.1 3.3 2.9" opacity=".7" />
+      <path d="M7.6 11.4v6.2" opacity=".35" />
+    </svg>
+  </div>
+
+  <!-- Swap: two arrows swapping, weapon switch. -->
+  <div class="btn" id="btnSwap" role="button" aria-label="Swap weapon">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+         stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M4.4 8.6h13.2M14.2 5.2l3.4 3.4-3.4 3.4" />
+      <path d="M19.6 15.4H6.4M9.8 12l-3.4 3.4 3.4 3.4" />
+    </svg>
+  </div>
 </div>
 
 <div id="overlay">
@@ -331,7 +456,14 @@
       <div><span>Jump / Spectate</span><b>SPACE / E</b></div>
     </div>
 
-    <button id="btnStart">DEPLOY</button>
+    <button id="btnStart">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1"
+           stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M2.4 12.6 21 4.2l-4.2 17.1-4.5-6.4z" />
+        <path d="m10.4 14.9 10.6-10.7" opacity=".55" />
+      </svg>
+      <span>DEPLOY</span>
+    </button>
     <div style="font-size:10.5px;opacity:.42;margin-top:12px;text-align:center;letter-spacing:.07em">
       Phone? Touch controls appear automatically.
     </div>
@@ -353,7 +485,14 @@
       <div class="stat"><div class="n" id="endDmg">0</div><div class="l">DAMAGE</div></div>
     </div>
 
-    <button id="btnAgain">PLAY AGAIN</button>
+    <button id="btnAgain">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1"
+           stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M20.6 12a8.6 8.6 0 1 1-2.7-6.2" />
+        <path d="M21.1 4.1v5.2h-5.2" />
+      </svg>
+      <span>PLAY AGAIN</span>
+    </button>
   </div>
 </div>
 

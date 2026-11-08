@@ -232,6 +232,22 @@ const finite = ['x', 'z', 'y', 'yaw', 'health'].every((k) => Number.isFinite(pla
 if (!finite) failures.push('player state has NaN');
 if (after.alive < 1) failures.push('everyone died instantly');
 
+// Regression: the local player is third person, so the BODY must stay on screen
+// during play. An earlier attempt at the duplicate-gun bug hid the whole body
+// instead of just its rifle. Only the rifle may be hidden.
+const playerView = br.views?.().get(player.id);
+if (playerView) {
+  if (playerView.root?.visible === false) {
+    failures.push('local player body is hidden during play (only the gun should be)');
+  }
+  if (playerView.gunPivot?.visible !== false) {
+    failures.push('local player body rifle is still visible (duplicate gun)');
+  }
+  console.log('body / body-rifle    :', playerView.root?.visible, '/', playerView.gunPivot?.visible, '(want true / false)');
+} else {
+  console.log('body / body-rifle    : views map not exposed, skipping');
+}
+
 if (failures.length) {
   console.error('\nFAILURES:');
   for (const f of failures) console.error(' -', f);

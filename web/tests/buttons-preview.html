@@ -1,0 +1,437 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Button design — v2.3.0</title>
+<style>
+
+  :root {
+    --safe: #38d0ff;
+    --danger: #ff4d4d;
+    --ok: #4dff87;
+    --ammo: #ffbe1f;
+    --armor: #59b6ff;
+    --ui: rgba(4, 10, 16, .74);
+    --line: rgba(255,255,255,.10);
+  }
+
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+  html, body {
+    margin: 0; padding: 0; height: 100%; overflow: hidden;
+    background: #070b10; color: #eaf2f8;
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    touch-action: none; user-select: none; -webkit-user-select: none;
+    overscroll-behavior: none;
+  }
+
+  #game { position: fixed; inset: 0; display: block; width: 100%; height: 100%; }
+
+  /* ---------------------------------------------------------------- HUD */
+  #hud { position: fixed; inset: 0; pointer-events: none; font-variant-numeric: tabular-nums; }
+
+  .panel {
+    position: absolute;
+    background: var(--ui);
+    border: 1px solid var(--line);
+    border-radius: 11px;
+    padding: 9px 13px;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    box-shadow: 0 6px 24px rgba(0,0,0,.35);
+  }
+
+  #stats { top: 14px; left: 14px; min-width: 200px; }
+  #stats .row { display: flex; justify-content: space-between; gap: 16px; font-size: 12.5px; letter-spacing: .07em; }
+  #stats .row span:last-child { font-weight: 800; }
+  #hpTrack { margin-top: 8px; height: 9px; border-radius: 5px; background: rgba(255,255,255,.13); overflow: hidden; }
+  #hpFill { height: 100%; width: 100%; background: var(--ok); transition: width .12s linear, background .2s; box-shadow: 0 0 12px currentColor; }
+  #armorWrap { margin-top: 5px; height: 5px; border-radius: 3px; background: rgba(255,255,255,.10); overflow: hidden; transition: opacity .2s; }
+  #armorFill { height: 100%; width: 0%; background: var(--armor); box-shadow: 0 0 10px var(--armor); transition: width .12s linear; }
+  #hpText { margin-top: 6px; font-size: 11.5px; opacity: .82; letter-spacing: .06em; }
+
+  #timerWrap { top: 14px; left: 50%; transform: translateX(-50%); width: 236px; padding: 8px 13px; text-align: center; }
+  #zoneLabel { font-size: 11.5px; letter-spacing: .12em; color: var(--safe); }
+  #timerTrack { margin-top: 6px; height: 4px; border-radius: 2px; background: rgba(255,255,255,.16); overflow: hidden; }
+  #timerFill { height: 100%; width: 0%; background: linear-gradient(90deg,#ffd166,#ff6b6b); }
+
+  #ammoPanel { top: 14px; right: 14px; text-align: right; min-width: 158px; }
+  #weaponName { font-size: 10.5px; letter-spacing: .14em; opacity: .62; margin-bottom: 2px; }
+  #ammoText { font-size: 26px; font-weight: 900; letter-spacing: .02em; color: var(--ammo); line-height: 1; }
+  #ammoText.small { font-size: 15px; color: #ffd166; }
+  #reserveText { font-size: 11.5px; opacity: .8; margin-top: 3px; }
+  #grenadeRow { margin-top: 6px; font-size: 11px; letter-spacing: .1em; opacity: .85; }
+  #grenadeRow b { color: #b8ff4a; }
+
+  #toast {
+    position: absolute; top: 20%; left: 50%; transform: translateX(-50%) scale(.9);
+    font-size: 24px; font-weight: 900; letter-spacing: .18em;
+    text-shadow: 0 4px 20px rgba(0,0,0,.9);
+    opacity: 0; transition: opacity .12s, transform .12s;
+    white-space: nowrap;
+  }
+  #toast.show { opacity: 1; transform: translateX(-50%) scale(1); }
+  #toast.crit { color: #ff5a5a; }
+  #toast.heal { color: var(--ok); }
+  #toast.loot { color: var(--ammo); font-size: 18px; }
+  #toast.weapon { color: var(--safe); font-size: 17px; }
+  #toast.bad { color: #ff3b3b; font-size: 32px; }
+
+  #zoneWarning {
+    position: absolute; top: 32%; left: 50%; transform: translateX(-50%);
+    font-size: 16px; font-weight: 800; letter-spacing: .14em; color: var(--safe);
+    text-shadow: 0 2px 14px rgba(0,0,0,.95); opacity: 0;
+    animation: pulse 1.1s ease-in-out infinite;
+  }
+  #zoneWarning.on { opacity: 1; }
+  @keyframes pulse { 0%,100% { opacity: .4 } 50% { opacity: 1 } }
+
+  /* ---- crosshair: Free-Fire-style 4 ticks + centre dot ---------------
+   * The old one was a 22 px full cross, which read as a huge plus sign over
+   * the target. This is four short ticks around a 2 px dot: small enough to
+   * sit on a head at 40 m, with a dark rim so it survives a bright sky.
+   */
+  #crosshair {
+    position: absolute; left: 50%; top: 50%; width: 26px; height: 26px;
+    transform: translate(-50%,-50%); pointer-events: none;
+  }
+  #crosshair i {
+    position: absolute; display: block; background: #f2fbff;
+    box-shadow: 0 0 0 1px rgba(0,0,0,.55), 0 0 3px rgba(0,0,0,.8);
+    border-radius: 1px;
+  }
+  #crosshair .t, #crosshair .b { left: 50%; width: 1.5px; height: 6px; margin-left: -.75px; }
+  #crosshair .l, #crosshair .r { top: 50%; height: 1.5px; width: 6px; margin-top: -.75px; }
+  #crosshair .t { top: 0; }
+  #crosshair .b { bottom: 0; }
+  #crosshair .l { left: 0; }
+  #crosshair .r { right: 0; }
+  /* Centre dot: the actual aim point. */
+  #crosshair .d {
+    left: 50%; top: 50%; width: 2.5px; height: 2.5px; margin: -1.25px 0 0 -1.25px;
+    border-radius: 50%; background: #ff3b4a;
+    box-shadow: 0 0 0 1px rgba(0,0,0,.5), 0 0 6px rgba(255,59,74,.85);
+  }
+  /* Firing spreads the ticks; sprinting narrows them. */
+  #crosshair.spread .t { transform: translateY(-3px); }
+  #crosshair.spread .b { transform: translateY(3px); }
+  #crosshair.spread .l { transform: translateX(-3px); }
+  #crosshair.spread .r { transform: translateX(3px); }
+  #crosshair { transition: opacity .12s linear; }
+
+  /* ---- aim-assist lock-on -------------------------------------------- */
+  #lockRing {
+    position: absolute; left: 0; top: 0; width: 40px; height: 40px; opacity: 0;
+    border: 1.5px solid #ff4d5e; border-radius: 50%;
+    transform-origin: 50% 50%; pointer-events: none; will-change: transform, opacity;
+    transition: opacity .09s linear, border-color .09s linear;
+    animation: lockPulse 1.15s ease-in-out infinite;
+  }
+  #lockRing::before, #lockRing::after {
+    content: ""; position: absolute; left: 50%; top: 50%; width: 5px; height: 1.5px;
+    background: currentColor; color: inherit; border-radius: 1px;
+  }
+  #lockRing::before { transform: translate(-50%, -50%) rotate(45deg); background: #ff4d5e; }
+  #lockRing::after  { transform: translate(-50%, -50%) rotate(-45deg); background: #ff4d5e; }
+  #lockRing.on { opacity: 1; }
+  @keyframes lockPulse {
+    0%, 100% { filter: brightness(1); }
+    50%      { filter: brightness(1.45); }
+  }
+  #lockLabel {
+    position: absolute; left: 0; top: 0; opacity: 0; pointer-events: none;
+    font: 700 10px/1 ui-monospace, "SF Mono", Menlo, monospace;
+    letter-spacing: .18em; color: #ffd7db; text-shadow: 0 0 8px rgba(255,60,80,.9);
+    transition: opacity .09s linear;
+  }
+  #lockLabel.on { opacity: 1; }
+
+  #hitmark { position: absolute; left: 50%; top: 50%; width: 28px; height: 28px; transform: translate(-50%,-50%) rotate(45deg); opacity: 0; }
+  #hitmark::before, #hitmark::after { content:""; position:absolute; background:#fff; box-shadow:0 0 8px #000; }
+  #hitmark::before { left: 50%; top: 0; width: 2px; height: 100%; transform: translateX(-50%); }
+  #hitmark::after { top: 50%; left: 0; height: 2px; width: 100%; transform: translateY(-50%); }
+  #hitmark.head::before, #hitmark.head::after { background: #ff5a5a; box-shadow: 0 0 10px #ff2020; }
+  #hitmark.show { animation: hit .19s ease-out; }
+  @keyframes hit {
+    0% { opacity: 1; transform: translate(-50%,-50%) rotate(45deg) scale(1.55) }
+    100% { opacity: 0; transform: translate(-50%,-50%) rotate(45deg) scale(.7) }
+  }
+
+  #damage {
+    position: absolute; inset: 0; opacity: 0;
+    background: radial-gradient(ellipse at center, transparent 40%, rgba(255,28,28,.66) 100%);
+    transition: opacity .09s;
+  }
+
+  /* Directional damage arcs */
+  #damageRing { position: absolute; left: 50%; top: 50%; width: 0; height: 0; }
+  #damageRing i {
+    position: absolute; left: -26px; top: -6px; width: 52px; height: 12px;
+    border-radius: 50%; background: radial-gradient(ellipse, rgba(255,60,60,.95), transparent 72%);
+    display: block;
+  }
+
+  /* Kill feed */
+  #killFeed { position: absolute; top: 96px; right: 14px; display: flex; flex-direction: column; gap: 5px; align-items: flex-end; }
+  .feedRow {
+    display: flex; gap: 7px; align-items: center;
+    background: rgba(4,10,16,.78); border: 1px solid rgba(255,80,80,.28);
+    border-radius: 7px; padding: 4px 9px; font-size: 10.5px; letter-spacing: .07em;
+    animation: slideIn .2s ease-out;
+  }
+  .feedRow b { color: #6cf; }
+  .feedRow span { opacity: .7; font-size: 9.5px; }
+  .feedRow i { color: #ff5a5a; font-style: normal; font-weight: 800; }
+  .feedRow em { font-style: normal; opacity: .85; }
+  @keyframes slideIn { from { opacity: 0; transform: translateX(16px) } to { opacity: 1; transform: none } }
+
+  #spectate {
+    position: absolute; left: 50%; bottom: 92px; transform: translateX(-50%);
+    font-size: 11.5px; letter-spacing: .14em; color: #cfe8f6;
+    background: rgba(4,10,16,.8); border: 1px solid var(--line);
+    padding: 7px 16px; border-radius: 20px; opacity: 0;
+  }
+  #spectate.on { opacity: 1; }
+
+  /* ------------------------------------------------------------ overlay */
+  #overlay {
+    position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+    background: radial-gradient(ellipse at center, rgba(10,18,28,.80), rgba(3,6,10,.97));
+    z-index: 30; padding: 18px; overflow: auto;
+  }
+  #overlay.hidden { display: none; }
+
+  .card {
+    width: min(580px, 100%);
+    background: linear-gradient(180deg, rgba(12,21,31,.97), rgba(6,11,17,.98));
+    border: 1px solid rgba(90, 190, 255, .24);
+    border-radius: 18px;
+    padding: 26px 26px 22px;
+    box-shadow: 0 30px 90px rgba(0,0,0,.75), inset 0 1px 0 rgba(255,255,255,.06);
+  }
+
+  .title { font-size: 11px; letter-spacing: .36em; color: var(--safe); opacity: .85; }
+  h1 { margin: 7px 0 5px; font-size: 32px; letter-spacing: .04em; line-height: 1.08; }
+  h1 em { font-style: normal; color: var(--ammo); }
+  .sub { font-size: 12.5px; opacity: .62; margin-bottom: 18px; letter-spacing: .05em; }
+
+  .keys { display: grid; grid-template-columns: 1fr 1fr; gap: 5px 16px; font-size: 12px; margin: 14px 0 18px; }
+  .keys div { display: flex; justify-content: space-between; gap: 10px; padding: 5px 0; border-bottom: 1px dashed rgba(255,255,255,.08); }
+  .keys b { color: var(--ammo); font-weight: 800; font-size: 11px; }
+
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 9px; margin: 16px 0; }
+  .stat { background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.06); border-radius: 10px; padding: 10px 6px; text-align: center; }
+  .stat .n { font-size: 22px; font-weight: 900; }
+  .stat .l { font-size: 9px; letter-spacing: .17em; opacity: .55; margin-top: 3px; }
+
+  button {
+    position: relative; overflow: hidden;
+    width: 100%; padding: 16px 18px; margin-top: 8px;
+    display: flex; align-items: center; justify-content: center; gap: 11px;
+    font: inherit; font-size: 15px; font-weight: 900; letter-spacing: .18em;
+    color: #04121b; background: linear-gradient(180deg,#7ceaff,#1fa9d8);
+    border: 0; border-radius: 13px; cursor: pointer;
+    box-shadow: 0 8px 26px rgba(40,180,230,.38), inset 0 1px 0 rgba(255,255,255,.55);
+    transition: transform .08s, filter .12s, box-shadow .12s;
+  }
+  /* A thin highlight sweeps across on hover: the button should feel machined
+     rather than a flat coloured rectangle. */
+  button::after {
+    content: ""; position: absolute; inset: 0 auto 0 -60%; width: 45%;
+    background: linear-gradient(100deg, transparent, rgba(255,255,255,.55), transparent);
+    transform: skewX(-18deg); transition: left .45s ease; pointer-events: none;
+  }
+  button:hover::after { left: 115%; }
+  button:hover { filter: brightness(1.06); box-shadow: 0 10px 30px rgba(40,180,230,.5), inset 0 1px 0 rgba(255,255,255,.6); }
+  button:active { transform: translateY(1px) scale(.995); }
+  button:focus-visible { outline: 2px solid #9df3ff; outline-offset: 3px; }
+  button svg { width: 21px; height: 21px; flex: 0 0 auto; }
+
+  #resultTitle { font-size: 38px; font-weight: 900; letter-spacing: .05em; margin: 8px 0 2px; }
+  #resultTitle.win { color: var(--ok); text-shadow: 0 0 34px rgba(77,255,135,.45); }
+  #resultTitle.lose { color: var(--danger); text-shadow: 0 0 34px rgba(255,77,77,.4); }
+
+  /* ----------------------------------------------------- touch controls */
+  #touch { position: fixed; inset: 0; z-index: 20; display: none; }
+  #touch.on { display: block; }
+
+  #stickZone { position: absolute; left: 0; bottom: 0; width: 50%; height: 64%; }
+  #stickBase {
+    position: absolute; width: 132px; height: 132px; border-radius: 50%;
+    border: 2px solid rgba(255,255,255,.22); background: rgba(255,255,255,.05);
+    transform: translate(-50%,-50%); display: none;
+  }
+  #stickBase.on { display: block; }
+  #stickKnob {
+    position: absolute; width: 56px; height: 56px; border-radius: 50%;
+    background: rgba(255,255,255,.28); border: 2px solid rgba(255,255,255,.45);
+    transform: translate(-50%,-50%);
+  }
+
+  #lookZone { position: absolute; right: 0; top: 0; width: 50%; height: 100%; }
+
+  /* ------------------------------------------------------- touch buttons
+     Round glass buttons with inline SVG glyphs. Each button carries its own
+     --accent so the icon, rim and glow all follow one colour. The old version
+     was a text label on a flat translucent circle: FIRE / RELOAD / HEAL all
+     read the same at arm's length on a phone. Icons are recognisable in a
+     glance, and the label underneath still spells it out. */
+  .btn {
+    position: absolute; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 2px;
+    border-radius: 50%; pointer-events: auto; text-align: center;
+    color: #fff; font-weight: 900; letter-spacing: .07em;
+    --accent: rgba(255,255,255,.34);
+    border: 2px solid var(--accent);
+    background: radial-gradient(circle at 50% 32%, rgba(255,255,255,.20), rgba(255,255,255,.06) 62%, rgba(0,0,0,.20));
+    backdrop-filter: blur(7px);
+    -webkit-backdrop-filter: blur(7px);
+    box-shadow: 0 4px 16px rgba(0,0,0,.34), inset 0 1px 0 rgba(255,255,255,.20);
+    transition: transform .07s ease, background .10s ease, box-shadow .10s ease;
+    -webkit-tap-highlight-color: transparent;
+    user-select: none;
+  }
+  .btn svg {
+    width: 55%; height: 55%; display: block;
+    filter: drop-shadow(0 1px 2px rgba(0,0,0,.55));
+    pointer-events: none;
+  }
+  .btn .lbl {
+    font-size: 8.5px; line-height: 1; opacity: .78;
+    text-shadow: 0 1px 2px rgba(0,0,0,.75); pointer-events: none;
+  }
+  .btn:active, .btn.down {
+    transform: scale(.93);
+    background: radial-gradient(circle at 50% 40%, rgba(255,255,255,.42), rgba(255,255,255,.20));
+    box-shadow: 0 0 0 3px rgba(255,255,255,.10), 0 0 22px var(--accent);
+  }
+
+  #btnFire {
+    right: 20px; bottom: 24px; width: 92px; height: 92px;
+    --accent: rgba(255,90,90,.78);
+    background: radial-gradient(circle at 50% 32%, rgba(255,110,110,.38), rgba(255,40,40,.14) 64%, rgba(0,0,0,.24));
+  }
+  #btnFire svg { width: 46%; height: 46%; }
+  #btnReload { right: 124px; bottom: 92px; width: 62px; height: 62px; --accent: rgba(120,200,255,.62); }
+  #btnHeal { right: 20px; bottom: 128px; width: 62px; height: 62px; --accent: rgba(80,255,140,.70); }
+  #btnJump { right: 124px; bottom: 22px; width: 58px; height: 58px; --accent: rgba(255,255,255,.42); }
+  #btnGrenade { right: 88px; bottom: 172px; width: 58px; height: 58px; --accent: rgba(190,255,90,.66); }
+  #btnSwap { right: 200px; bottom: 40px; width: 52px; height: 52px; --accent: rgba(255,205,110,.60); }
+  #btnSwap .lbl, #btnGrenade .lbl, #btnJump .lbl { display: none; }
+
+  #hint { position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%); font-size: 10.5px; opacity: .38; letter-spacing: .1em; white-space: nowrap; }
+
+  @media (max-width: 640px) {
+    h1 { font-size: 25px; }
+    #stats { min-width: 152px; padding: 7px 10px; }
+    #ammoPanel { min-width: 118px; }
+    #ammoText { font-size: 20px; }
+    #timerWrap { width: 168px; }
+    .keys { grid-template-columns: 1fr; }
+    #killFeed { top: 88px; }
+  }
+
+  body { margin:0; background: radial-gradient(circle at 50% 0%, #223040, #0a0f14 70%); min-height:100vh;
+         font-family: inherit; color:#eaf4fb; }
+  .wrap { max-width: 880px; margin: 0 auto; padding: 34px 22px 60px; }
+  h2 { font-size:13px; letter-spacing:.24em; opacity:.5; font-weight:800; margin: 0 0 6px; }
+  h1 { font-size:26px; margin:0 0 26px; letter-spacing:.02em; }
+  .grid { display:flex; align-items:flex-end; gap:18px; flex-wrap:wrap;
+           background: rgba(255,255,255,.035); border:1px solid rgba(255,255,255,.08);
+           border-radius:16px; padding:24px; margin-bottom:24px; }
+  .cell { width:104px; text-align:center; }
+  .cell .name { font-size:9.5px; letter-spacing:.14em; opacity:.45; margin-top:9px; }
+  .cell .stage { width:100%; height:104px; display:flex; align-items:center; justify-content:center; }
+  .cell .stage .btn { position:relative !important; right:auto !important; bottom:auto !important;
+                       left:auto !important; top:auto !important; }
+  .card { background: rgba(255,255,255,.04); border:1px solid rgba(255,255,255,.09);
+           border-radius:18px; padding:26px; max-width:390px; }
+  .pressed .btn { transform: scale(.93);
+                   background: radial-gradient(circle at 50% 40%, rgba(255,255,255,.42), rgba(255,255,255,.20)); }
+</style></head>
+<body><div class="wrap">
+  <h2>ANKIT · BATTLE ROYALE</h2>
+  <h1>Touch buttons — SVG icon set</h1>
+
+  <h2>GAMEPLAY BUTTONS · REST</h2>
+  <div class="grid">
+    <div class="cell"><div class="stage"><div class="btn" id="btnFire" role="button" aria-label="Fire">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"
+         stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="7.2" />
+      <circle cx="12" cy="12" r="2.1" fill="currentColor" stroke="none" />
+      <path d="M12 1.4v4.2M12 18.4v4.2M1.4 12h4.2M18.4 12h4.2" />
+    </svg>
+  </div></div><div class="name">FIRE</div></div><div class="cell"><div class="stage"><div class="btn" id="btnReload" role="button" aria-label="Reload">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+         stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M20.4 12a8.4 8.4 0 1 1-2.6-6.05" />
+      <path d="M20.9 4.2v5.1h-5.1" />
+    </svg>
+    <span class="lbl">RELOAD</span>
+  </div></div><div class="name">RELOAD</div></div><div class="cell"><div class="stage"><div class="btn" id="btnHeal" role="button" aria-label="Heal">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+         stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <rect x="3.2" y="5.4" width="17.6" height="14" rx="3" />
+      <path d="M9 11.6h6M12 8.6v6" stroke-width="2.4" />
+    </svg>
+    <span class="lbl">HEAL</span>
+  </div></div><div class="name">HEAL</div></div><div class="cell"><div class="stage"><div class="btn" id="btnJump" role="button" aria-label="Jump">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1"
+         stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M6.4 11.6 12 6l5.6 5.6" />
+      <path d="M6.4 17 12 11.4 17.6 17" opacity=".55" />
+      <path d="M4.6 20.4h14.8" opacity=".45" />
+    </svg>
+  </div></div><div class="name">JUMP</div></div><div class="cell"><div class="stage"><div class="btn" id="btnGrenade" role="button" aria-label="Grenade">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"
+         stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <ellipse cx="12" cy="14.4" rx="5.6" ry="6.4" />
+      <path d="M9.4 8.2h5.2M12 8.2V5.6" />
+      <path d="M14.6 5.2c1.9.1 3.1 1.1 3.3 2.9" opacity=".7" />
+      <path d="M7.6 11.4v6.2" opacity=".35" />
+    </svg>
+  </div></div><div class="name">GRENADE</div></div><div class="cell"><div class="stage"><div class="btn" id="btnSwap" role="button" aria-label="Swap weapon">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+         stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M4.4 8.6h13.2M14.2 5.2l3.4 3.4-3.4 3.4" />
+      <path d="M19.6 15.4H6.4M9.8 12l-3.4 3.4 3.4 3.4" />
+    </svg>
+  </div></div><div class="name">SWAP</div></div>
+  </div>
+
+  <h2>PRESSED STATE</h2>
+  <div class="grid pressed">
+    <div class="cell"><div class="stage"><div class="btn" id="btnFire" role="button" aria-label="Fire">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"
+         stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="7.2" />
+      <circle cx="12" cy="12" r="2.1" fill="currentColor" stroke="none" />
+      <path d="M12 1.4v4.2M12 18.4v4.2M1.4 12h4.2M18.4 12h4.2" />
+    </svg>
+  </div></div><div class="name">FIRE</div></div><div class="cell"><div class="stage"><div class="btn" id="btnReload" role="button" aria-label="Reload">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+         stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M20.4 12a8.4 8.4 0 1 1-2.6-6.05" />
+      <path d="M20.9 4.2v5.1h-5.1" />
+    </svg>
+    <span class="lbl">RELOAD</span>
+  </div></div><div class="name">RELOAD</div></div><div class="cell"><div class="stage"><div class="btn" id="btnHeal" role="button" aria-label="Heal">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+         stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <rect x="3.2" y="5.4" width="17.6" height="14" rx="3" />
+      <path d="M9 11.6h6M12 8.6v6" stroke-width="2.4" />
+    </svg>
+    <span class="lbl">HEAL</span>
+  </div></div><div class="name">HEAL</div></div>
+  </div>
+
+  <h2>MENU BUTTONS</h2>
+  <div class="card">
+    <button id="btnStart">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.4 12.6 21 4.2l-4.2 17.1-4.5-6.4z"/><path d="m10.4 14.9 10.6-10.7" opacity=".55"/></svg>
+      <span>DEPLOY</span>
+    </button>
+    <button id="btnAgain">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.6 12a8.6 8.6 0 1 1-2.7-6.2"/><path d="M21.1 4.1v5.2h-5.2"/></svg>
+      <span>PLAY AGAIN</span>
+    </button>
+  </div>
+</div></body></html>

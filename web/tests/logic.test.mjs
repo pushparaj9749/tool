@@ -242,15 +242,33 @@ test('world generation is deterministic and stays inside the map', () => {
     assert.ok(Math.abs(o.z) <= limit, `obstacle z ${o.z} outside map`);
     assert.ok(o.hx > 0 && o.hz > 0 && o.height > 0);
   }
-  // Centre cell is skipped and ~17 % of the rest are randomly dropped.
-  assert.ok(w1.buildings.length > 0 && w1.buildings.length <= 24,
+  // Four POIs, 4-6 buildings each; the map edge drops a few.
+  assert.ok(w1.buildings.length >= 10 && w1.buildings.length <= 28,
     `unexpected building count ${w1.buildings.length}`);
 
   for (const b of w1.buildings) {
-    assert.ok(b.width >= 7 && b.width <= 12);
-    assert.ok(b.depth >= 7 && b.depth <= 12);
-    assert.ok(b.height >= 4 && b.height <= 9);
+    assert.ok(b.width >= 6 && b.width <= 12, `width ${b.width}`);
+    assert.ok(b.depth >= 6 && b.depth <= 12, `depth ${b.depth}`);
+    assert.ok(b.height >= 3 && b.height <= 11, `height ${b.height}`);
   }
+
+  // The map must not regress to an empty field: v2.2.2 shipped ~46 obstacles
+  // over 160x160 m (one per 557 m²), which read as barren. Keep it dense.
+  assert.ok(w1.obstacles.length >= 140,
+    `map too sparse: ${w1.obstacles.length} obstacles`);
+  const area = CONFIG.mapSize * CONFIG.mapSize;
+  assert.ok(area / w1.obstacles.length <= 200,
+    `density ${Math.round(area / w1.obstacles.length)} m² per obstacle`);
+
+  // Variety: flat grey boxes everywhere is what made the old map dull.
+  const kinds = new Set(w1.obstacles.map((o) => o.kind));
+  for (const k of ['building', 'cover', 'rock', 'wall']) {
+    assert.ok(kinds.has(k), `map is missing '${k}' obstacles`);
+  }
+
+  // High ground exists.
+  assert.ok(w1.obstacles.some((o) => o.kind === 'platform'),
+    'map has no raised platforms');
 });
 
 test('createMatch is reproducible and spawns everyone clear of cover', () => {

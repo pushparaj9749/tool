@@ -1,8 +1,31 @@
-# BATTLE ROYALE v2.2.2 — playable in the browser **and** on Android
+# BATTLE ROYALE v2.3.0 — playable in the browser **and** on Android
 
 A complete 16-fighter battle royale: three weapons, grenades, armour, four bot skill
 tiers, a shrinking safe zone and a kill feed. Runs in any modern browser with no build
 step, and ships as an installable **Android APK** built by GitHub Actions.
+
+**v2.3.0 is the content release: a real map, a clean HUD and a proper icon set.**
+
+- **The duplicate gun is gone, the body is not.** The camera is third person, so the
+  local player's body belongs on screen. What did not belong was the rifle in that
+  body's hands, which sat at the right edge of the frame next to the first-person
+  viewmodel and read as a stray second gun. Only `gunPivot` is hidden during play; the
+  body, head, arms and walk cycle are untouched, and the rifle returns on the death cam
+  and while spectating. A headless assertion now fails the build if the body is ever
+  hidden again or the rifle ever becomes visible (`true / false`).
+- **The map is no longer an empty field.** v2.2.2 scattered ~46 obstacles over
+  160×160 m — one per 557 m², all flat. There are now ~187, roughly one per 137 m²:
+  four named POIs (Foundry, Depot, Terrace, Outpost) with 4–6 clustered buildings each,
+  perimeter walls with piers, sandbag emplacements, rock outcrops and concrete terraces.
+  The generator is still deterministic per seed, and a test now fails if density drops
+  below one object per 200 m² or if a kind (building / cover / rock / wall / platform)
+  goes missing.
+- **Touch buttons have SVG icons.** FIRE, RELOAD, HEAL, JUMP, NADE and SWAP were text
+  labels on flat circles — identical at arm's length on a phone. Each is now a glass
+  button with a hand-drawn inline SVG glyph and its own accent colour, with a pressed
+  state that scales and glows. DEPLOY and PLAY AGAIN get the same treatment plus a
+  highlight sweep on hover. Open `web/tests/buttons-preview.html` to see them at rest
+  and pressed.
 
 **v2.2.2 fixes the actual cause of the black sky: the shader did not compile.**
 The shooting-star code named a variable `active`. `active` is a **reserved word in GLSL**,

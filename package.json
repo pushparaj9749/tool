@@ -1,6 +1,6 @@
 {
   "name": "ankit-battle-royale",
-  "version": "2.2.2",
+  "version": "2.3.0",
   "private": true,
   "description": "Battle Royale: three.js web game packaged as an Android APK with Capacitor.",
   "scripts": {

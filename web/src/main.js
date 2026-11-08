@@ -1357,6 +1357,79 @@ function buildObstacle(o, isBuilding) {
     return group;
   }
 
+  if (o.kind === 'platform') {
+    // A solid concrete bunker / terrace. The engine has no heightmap, so a
+    // walkable surface would need slope physics; rendering it as a solid mass
+    // is honest about what it is -- hard cover you shoot over or go around.
+    const slab = new THREE.Mesh(BOX, MAT.wall);
+    slab.scale.set(o.hx * 2, o.height, o.hz * 2);
+    slab.position.y = o.height / 2;
+    slab.castShadow = true;
+    slab.receiveShadow = true;
+    group.add(slab);
+
+    // Coping stone: a slightly proud cap catches the light along the top edge.
+    const cap = new THREE.Mesh(BOX, MAT.roof);
+    cap.scale.set(o.hx * 2 + 0.34, 0.18, o.hz * 2 + 0.34);
+    cap.position.y = o.height + 0.09;
+    cap.castShadow = true;
+    cap.receiveShadow = true;
+    group.add(cap);
+
+    // Weathered base so it does not read as a floating block.
+    const base = new THREE.Mesh(BOX, MAT.dark);
+    base.scale.set(o.hx * 2 + 0.2, 0.34, o.hz * 2 + 0.2);
+    base.position.y = 0.17;
+    base.castShadow = true;
+    group.add(base);
+
+    // A single step block on one side hints at how you would climb it.
+    const step = new THREE.Mesh(BOX, MAT.wall);
+    step.scale.set(o.hx * 0.9, o.height * 0.45, 0.7);
+    step.position.set(0, o.height * 0.225, o.hz + 0.35);
+    step.castShadow = true;
+    step.receiveShadow = true;
+    group.add(step);
+
+    return group;
+  }
+
+  if (o.kind === 'wall') {
+    // Compound / perimeter wall: long, thin and taller than a man. Rendered in
+    // short segments with a pier every few metres so it does not look like one
+    // stretched crate, which is what the default branch would have produced.
+    const along = o.hx > o.hz;          // runs along x, or along z
+    const len = (along ? o.hx : o.hz) * 2;
+    const thick = (along ? o.hz : o.hx) * 2;
+
+    const slab = new THREE.Mesh(BOX, MAT.wall);
+    slab.scale.set(along ? len : thick, o.height, along ? thick : len);
+    slab.position.y = o.height / 2;
+    slab.castShadow = true;
+    slab.receiveShadow = true;
+    group.add(slab);
+
+    // Coping caps the wall and hides the flat top face.
+    const cap = new THREE.Mesh(BOX, MAT.dark);
+    cap.scale.set(along ? len + 0.1 : thick + 0.16, 0.12, along ? thick + 0.16 : len + 0.1);
+    cap.position.y = o.height + 0.06;
+    cap.castShadow = true;
+    group.add(cap);
+
+    // Piers break up the run.
+    const piers = Math.max(1, Math.round(len / 3.2));
+    for (let i = 0; i <= piers; i++) {
+      const t = piers === 0 ? 0 : (i / piers - 0.5) * len;
+      const pier = new THREE.Mesh(BOX, MAT.wall);
+      pier.scale.set(along ? 0.42 : thick + 0.18, o.height + 0.22, along ? thick + 0.18 : 0.42);
+      pier.position.set(along ? t : 0, (o.height + 0.22) / 2, along ? 0 : t);
+      pier.castShadow = true;
+      group.add(pier);
+    }
+
+    return group;
+  }
+
   if (o.kind === 'rock') {
     const geo = new THREE.IcosahedronGeometry(1, 0);
     const rock = new THREE.Mesh(geo, MAT.crateMetal);
@@ -2095,6 +2168,7 @@ const isTouch = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in win
 const el = {
   alive: document.getElementById('alive'),
   kills: document.getElementById('kills'),
+  crosshair: document.getElementById('crosshair'),
   lockRing: document.getElementById('lockRing'),
   lockLabel: document.getElementById('lockLabel'),
   hpFill: document.getElementById('hpFill'),
@@ -2233,6 +2307,15 @@ function updateHud() {
   el.reserveText.textContent = `/ ${hud.reserve}  ·  MED ${hud.medkits}`;
   el.weaponName.textContent = hud.weaponName;
   el.grenadeCount.textContent = `${hud.grenades}`;
+
+  // Crosshair reacts to state: wider while firing or sprinting off-target.
+  if (el.crosshair) {
+    const firing = input.firing && hud.ammo > 0 && !hud.reloading;
+    const moving = hud.playerAlive && (input.moveX !== 0 || input.moveZ !== 0);
+    const spread = firing || hud.reloading || (moving && hud.ammo > 0);
+    el.crosshair.classList.toggle('spread', !!spread);
+    el.crosshair.style.opacity = hud.playerAlive && !hud.finished ? '1' : '0';
+  }
 
   updateLockRing(hud);
 
@@ -2587,6 +2670,16 @@ function syncViews(dt) {
     view.root.position.set(actor.x, actor.y, actor.z);
     view.root.rotation.y = actor.yaw;
 
+    // The local player's BODY is always drawn -- the camera is third person.
+    // Only the rifle in that body's hands is hidden during play: it sat at the
+    // right edge of the screen next to the real first-person viewmodel and read
+    // as a stray second gun. Body, head, arms and the walk cycle are untouched;
+    // the rifle comes back when spectating or on the death cam, where the
+    // camera is looking AT the body instead of through it.
+    if (actor.isPlayer) {
+      view.gunPivot.visible = !running || state.player.spectating != null;
+    }
+
     // Walk cycle: hips swing, knees bend on the back stroke, arms counter-swing.
     // Speed scales with sprinting / crouching so the feet do not skate.
     const speed = actor.sprinting ? 14 : actor.crouching ? 6.5 : 9.5;
@@ -2604,7 +2697,9 @@ function syncViews(dt) {
 
       // Opposite arms swing back as the legs come forward.
       view.armL.rotation.x = -swing * 0.75;
-      view.armR.rotation.x = swing * 0.35 - 0.42;   // right arm holds the gun up
+      // Only hold the rifle-ready pose while the body actually has a rifle in
+      // hand; otherwise the arm swings freely like the left one.
+      view.armR.rotation.x = view.gunPivot.visible ? swing * 0.35 - 0.42 : -swing * 0.75;
 
       // A little vertical bob and torso counter-rotation sell the weight.
       view.root.position.y += Math.abs(Math.sin(phase)) * (actor.sprinting ? 0.05 : 0.022);
@@ -2923,6 +3018,9 @@ window.__BR__ = {
   get running() { return running; },
   beginMatch: (seed = 1) => beginMatch(createMatch(CONFIG, seed)),
   hud: () => (state ? hudModel(state) : null),
+  // Exposed so the headless boot test can assert on the local player's body and
+  // body-rifle visibility -- the duplicate-gun regression must not come back.
+  views: () => actorViews,
   spectate: (dir = 1) => spectate(state, dir),
   advance(seconds, dt = 1 / 60) {
     if (!state) return null;
