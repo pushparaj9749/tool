@@ -1,0 +1,18 @@
+# ANKIT LLM — optional extras, not needed for training / inference / tests
+#
+# requirements.txt is enough for: model, tokenizer, data, pretraining, finetuning,
+# evaluation, CLI chat, HTTP API and the full pytest suite (verified: 103 passed).
+#
+# Install these only if you use the two tooling scripts below.
+#
+#   .venv/bin/pip install -r requirements-optional.txt
+#
+# Used by benchmarks/bench_gpu.py:
+psutil>=5.9                # CPU RSS reporting in the benchmark cells
+pynvml>=11.5               # GPU utilisation reporting (a no-op on a CPU-only host)
+
+# Used by scripts/import_checkpoint.py and the Drive restore path:
+google-api-python-client>=2.100
+google-auth>=2.20
+google-auth-httplib2>=0.1
+httplib2>=0.22

@@ -82,6 +82,7 @@ See [`COLAB_GUIDE.md`](COLAB_GUIDE.md) for the full step-by-step.
 - [`PROJECT_STATUS.md`](PROJECT_STATUS.md) — phase-by-phase status with evidence
 - [`TECHNICAL_SPEC.md`](TECHNICAL_SPEC.md) — architecture, tokenizer, data, training, inference design
 - [`ENVIRONMENT_REPORT.md`](ENVIRONMENT_REPORT.md) — hardware, network restrictions, compute options
+- [`ENV_SETUP_VERIFIED.md`](ENV_SETUP_VERIFIED.md) — fresh-sandbox install + end-to-end verification (env, training, resume, SFT, API)
 - [`EXECUTION_LOG.md`](EXECUTION_LOG.md) — chronological log of real runs and results
 - [`ROADMAP.md`](ROADMAP.md) — what remains, with concrete compute requirements
 - [`MODEL_CARD.md`](MODEL_CARD.md) — model card for the released checkpoint
